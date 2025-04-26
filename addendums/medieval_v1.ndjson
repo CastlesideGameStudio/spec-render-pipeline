@@ -1,0 +1,50 @@
+{"id":"m-001","name":"Sir Aldric","heads":7.8,"skin":"fair","hair":"blond short","clothing":"steel half-plate and crimson surcoat","desc":"landed knight sworn to House Carron","seed":2001,"style":"real"}
+{"id":"m-002","name":"Lady Ysabel","heads":7.3,"skin":"olive","hair":"dark braided","clothing":"brocade gown with ermine trim","desc":"court diplomat fluent in four tongues","seed":2002,"style":"handpt"}
+{"id":"m-003","name":"Father Berengar","heads":7.1,"skin":"ruddy","hair":"brown tonsure","clothing":"worn wool cassock and oak staff","desc":"traveling priest chronicling miracles","seed":2003,"style":"albion"}
+{"id":"m-004","name":"Garin the Miller","heads":7.0,"skin":"fair","hair":"sandy mop","clothing":"linen shirt with flour stains","desc":"cheerful miller who controls river tolls","seed":2004,"style":"lowpoly"}
+{"id":"m-005","name":"Anika the Falconer","heads":7.4,"skin":"olive","hair":"black ponytail","clothing":"leather jerkin and hawking glove","desc":"castle falconer training gyrfalcons","seed":2005,"style":"anime"}
+{"id":"m-006","name":"Brother Corbin","heads":7.2,"skin":"fair","hair":"shaved","clothing":"grey novice robe","desc":"scribe copying royal ledgers","seed":2006,"style":"lowpoly"}
+{"id":"m-007","name":"Duke Rowan","heads":8.0,"skin":"ruddy","hair":"auburn fringe","clothing":"purple velvet doublet with fox trim","desc":"young duke guarding the mountain pass","seed":2007,"style":"handpt"}
+{"id":"m-008","name":"Iseult the Herbalist","heads":7.1,"skin":"dark","hair":"tight curls","clothing":"coarse sackcloth apron","desc":"village healer versed in roots and balms","seed":2008,"style":"albion"}
+{"id":"m-009","name":"Perrin Swift","heads":7.5,"skin":"fair","hair":"light brown shag","clothing":"green brigandine and short bow","desc":"scout who maps enemy roads","seed":2009,"style":"real"}
+{"id":"m-010","name":"Old Marta","heads":6.8,"skin":"olive","hair":"grey bun","clothing":"patched wool cloak","desc":"storyteller keeping hearth myths alive","seed":2010,"style":"anime"}
+{"id":"m-011","name":"Sir Owyn Black","heads":7.9,"skin":"fair","hair":"black cropped","clothing":"blackened mail and raven crest shield","desc":"grim knight with unknown patron","seed":2011,"style":"real"}
+{"id":"m-012","name":"Squire Joran","heads":7.2,"skin":"fair","hair":"blond fringe","clothing":"padded gambeson and bucket helm","desc":"eager squire seeking first tourney","seed":2012,"style":"lowpoly"}
+{"id":"m-013","name":"Elric Forgehand","heads":7.3,"skin":"ruddy","hair":"red beard","clothing":"sooty leather apron","desc":"blacksmith famed for riversteel blades","seed":2013,"style":"handpt"}
+{"id":"m-014","name":"Faye of the Glen","heads":7.0,"skin":"fair","hair":"brown waves","clothing":"green hood and ash stave","desc":"wandering archer raised in deep woods","seed":2014,"style":"albion"}
+{"id":"m-015","name":"Captain Harlan","heads":7.6,"skin":"dark","hair":"shaved sides","clothing":"steel cuirass and blue plume","desc":"city guard captain rooting out smugglers","seed":2015,"style":"real"}
+{"id":"m-016","name":"Abbot Silvan","heads":7.1,"skin":"olive","hair":"grey fringe","clothing":"white linen habit","desc":"abbot guarding relic of Saint Remy","seed":2016,"style":"anime"}
+{"id":"m-017","name":"Mina Threadgold","heads":6.9,"skin":"fair","hair":"blond braid","clothing":"simple linen dress, sewing kit","desc":"seamstress who knows every gossip","seed":2017,"style":"lowpoly"}
+{"id":"m-018","name":"Gregor Stonejaw","heads":7.7,"skin":"ruddy","hair":"dark beard","clothing":"chain shirt and war pick","desc":"miner turned mercenary guarding caravans","seed":2018,"style":"handpt"}
+{"id":"m-019","name":"Seraphin the Piper","heads":7.0,"skin":"fair","hair":"light brown curls","clothing":"colorful patchwork jerkin","desc":"travelling bard famed for silver flute","seed":2019,"style":"albion"}
+{"id":"m-020","name":"Helga Brewmaster","heads":7.2,"skin":"ruddy","hair":"red braids","clothing":"stout leather bodice","desc":"innkeeper brewing spiced ale","seed":2020,"style":"real"}
+{"id":"m-021","name":"Wulfric Tanner","heads":7.3,"skin":"olive","hair":"black stubble","clothing":"hide apron and tanning knife","desc":"leathermaker supplying castle armory","seed":2021,"style":"lowpoly"}
+{"id":"m-022","name":"Lysa Dove","heads":7.1,"skin":"fair","hair":"brown bob","clothing":"white coif and messenger satchel","desc":"royal courier who rides dawn to dusk","seed":2022,"style":"anime"}
+{"id":"m-023","name":"Cedric Longbow","heads":7.5,"skin":"fair","hair":"dark ponytail","clothing":"elm longbow and leather vambrace","desc":"forest hunter feeding four villages","seed":2023,"style":"handpt"}
+{"id":"m-024","name":"Merek Cutpurse","heads":7.0,"skin":"dark","hair":"short curls","clothing":"dark hooded cloak","desc":"thief plying trade in crowded fairs","seed":2024,"style":"albion"}
+{"id":"m-025","name":"Doria Glass","heads":7.4,"skin":"fair","hair":"silver braid","clothing":"apprentice alchemist smock","desc":"glassblower perfecting clear flasks","seed":2025,"style":"real"}
+{"id":"m-026","name":"Brother Abel","heads":7.2,"skin":"olive","hair":"black tonsure","clothing":"sand-colored robe","desc":"monk keeping celestial charts","seed":2026,"style":"lowpoly"}
+{"id":"m-027","name":"Sir Roland Grey","heads":7.9,"skin":"fair","hair":"grey cropped","clothing":"aged plate with faded crest","desc":"retired knight mentoring squires","seed":2027,"style":"handpt"}
+{"id":"m-028","name":"Tilda Farrow","heads":6.8,"skin":"ruddy","hair":"red pixie cut","clothing":"wheat-colored tunic","desc":"farmer saving coin for new plough","seed":2028,"style":"albion"}
+{"id":"m-029","name":"Viktor the Sailmaker","heads":7.4,"skin":"dark","hair":"shaved top","clothing":"linen vest with sail needles","desc":"river barge sail craftsman","seed":2029,"style":"real"}
+{"id":"m-030","name":"Esme Lantern","heads":7.0,"skin":"fair","hair":"blond waves","clothing":"traveler cloak and lantern pole","desc":"guides pilgrims through marsh fogs","seed":2030,"style":"anime"}
+{"id":"m-031","name":"Otto Barrelgut","heads":7.5,"skin":"ruddy","hair":"brown beard","clothing":"cooper's apron, oak hammer","desc":"barrel maker whose ale casks never leak","seed":2031,"style":"lowpoly"}
+{"id":"m-032","name":"Joan Ironhand","heads":7.6,"skin":"fair","hair":"dark bun","clothing":"chain gloves and war hammer","desc":"castle guard famed for crushing blows","seed":2032,"style":"handpt"}
+{"id":"m-033","name":"Rafe Quickstep","heads":7.1,"skin":"olive","hair":"black fringe","clothing":"soft boots and rapier","desc":"duelist teaching nobles blade etiquette","seed":2033,"style":"albion"}
+{"id":"m-034","name":"Bryn Weaver","heads":7.0,"skin":"fair","hair":"light brown curls","clothing":"loom-dust tunic","desc":"weaver crafting intricate tapestries","seed":2034,"style":"real"}
+{"id":"m-035","name":"Edel Harrow","heads":7.2,"skin":"ruddy","hair":"auburn braid","clothing":"leather quiver and ash arrows","desc":"hinterland ranger guarding wild herds","seed":2035,"style":"anime"}
+{"id":"m-036","name":"Miles Torch","heads":7.3,"skin":"fair","hair":"brown mop","clothing":"oil cloth jacket","desc":"night watch lighting city beacons","seed":2036,"style":"lowpoly"}
+{"id":"m-037","name":"Agnes Crest","heads":7.1,"skin":"olive","hair":"dark braid","clothing":"ink-stained gown","desc":"cartographer mapping lost forts","seed":2037,"style":"handpt"}
+{"id":"m-038","name":"Baldric Oak","heads":7.4,"skin":"ruddy","hair":"bald","clothing":"heavy woodsman's coat","desc":"lumberjack famed for one-stroke fells","seed":2038,"style":"albion"}
+{"id":"m-039","name":"Sabin Sellsword","heads":7.7,"skin":"dark","hair":"black beard","clothing":"patched mail and broad sword","desc":"roving mercenary selling blade to highest bidder","seed":2039,"style":"real"}
+{"id":"m-040","name":"Clara Hearth","heads":6.9,"skin":"fair","hair":"light curls","clothing":"floury apron","desc":"baker whose rye bread draws nobility","seed":2040,"style":"anime"}
+{"id":"m-041","name":"Kendrick Moor","heads":7.5,"skin":"olive","hair":"short fringe","clothing":"mud-spattered boots","desc":"swamp guide knowing every hidden path","seed":2041,"style":"lowpoly"}
+{"id":"m-042","name":"Lothar Pike","heads":7.8,"skin":"ruddy","hair":"red beard","clothing":"steel helm and long pike","desc":"veteran pikeman from border wars","seed":2042,"style":"handpt"}
+{"id":"m-043","name":"Maeve Candle","heads":7.0,"skin":"fair","hair":"brown braid","clothing":"wax-flecked dress","desc":"chandler mixing lavender oils","seed":2043,"style":"albion"}
+{"id":"m-044","name":"Edric Page","heads":7.1,"skin":"fair","hair":"blond locks","clothing":"royal blue page livery","desc":"page running messages across castle grounds","seed":2044,"style":"real"}
+{"id":"m-045","name":"Gwen Needle","heads":6.8,"skin":"olive","hair":"dark pixie","clothing":"dyer smock splashed with indigo","desc":"dyer perfecting deep blue hues","seed":2045,"style":"anime"}
+{"id":"m-046","name":"Hugo Flint","heads":7.6,"skin":"ruddy","hair":"grey stubble","clothing":"iron pot helm and mace","desc":"village reeve enforcing tax law","seed":2046,"style":"lowpoly"}
+{"id":"m-047","name":"Iona Reed","heads":7.2,"skin":"fair","hair":"light braid","clothing":"green reed cloak","desc":"fisherwoman setting eel nets at dawn","seed":2047,"style":"handpt"}
+{"id":"m-048","name":"Torin Ash","heads":7.3,"skin":"dark","hair":"black bun","clothing":"charcoal-streaked smock","desc":"charcoal burner supplying forges","seed":2048,"style":"albion"}
+{"id":"m-049","name":"Rosa Gale","heads":7.0,"skin":"fair","hair":"red curls","clothing":"scarlet hood, sling pouch","desc":"messenger racing storm fronts","seed":2049,"style":"real"}
+{"id":"m-050","name":"Walt Stone","heads":7.4,"skin":"ruddy","hair":"brown beard","clothing":"granite-dust tunic","desc":"mason carving cathedral gargoyles","seed":2050,"style":"anime"}
