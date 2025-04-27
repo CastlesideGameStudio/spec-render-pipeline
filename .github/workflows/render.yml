@@ -1,4 +1,4 @@
-name: Launch Render Batch
+name: Launch Render Batch2
 
 on:
   workflow_dispatch:
