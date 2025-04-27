@@ -3,7 +3,7 @@ import os
 import requests
 import sys
 
-API_URL = "https://rest.runpod.io/account"
+API_URL = "https://rest.runpod.io/v1/account"
 
 def main():
     runpod_api_key = os.getenv("RUNPOD_API_KEY", "")

@@ -14,9 +14,10 @@ import time
 import pathlib
 import requests
 
-BASE_URL   = "https://rest.runpod.io"
-API_PODS   = f"{BASE_URL}/pod"      # for POST and GET
-API_LOGS   = f"{BASE_URL}/pod/logs" # for GET logs
+# Note the "/v1" in the base URL now
+BASE_URL   = "https://rest.runpod.io/v1"
+API_PODS   = f"{BASE_URL}/pod"       # for POST and GET
+API_LOGS   = f"{BASE_URL}/pod/logs"  # for GET logs
 
 def main():
     runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
@@ -87,7 +88,7 @@ def main():
         if not r_stat.ok:
             print("[WARN] GET /pod/<id> failed, ignoring temporarily")
             continue
-        status_data = r_stat.json()  # Should have e.g. {"id":..., "status":"Running", ...}
+        status_data = r_stat.json()  # e.g. {"id":..., "status":"Running", ...}
         status = status_data.get("status")
         print(f"[INFO] Pod status={status}")
 
@@ -105,14 +106,6 @@ def main():
     else:
         print("[WARN] Could not fetch logs. Status =", r_logs.status_code)
 
-    # If you also want to stop or delete the Pod, you can call:
-    #   DELETE /pod/<podId>
-    #   or POST /pod/stop
-    #
-    # But if your container is ephemeral and it has already exited,
-    # the Pod might shut down automatically on On-Demand.
-
-    # Exit code 0 if we got here
     sys.exit(0)
 
 if __name__ == "__main__":
