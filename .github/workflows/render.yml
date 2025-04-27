@@ -1,5 +1,4 @@
 name: Launch Render Batch
-
 on:
   workflow_dispatch:
     inputs:
