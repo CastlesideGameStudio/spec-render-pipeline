@@ -1,4 +1,4 @@
-name: Launch Render Batch    # ← must be the FIRST non-comment line, no indent!
+name: Launch Render Batch
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
         description: Container tag (SHA or "latest")
         default: 'latest'
       gpu_type:
-        description: RunPod gpuTypeId (copy from “Create Pod → API”)
+        description: RunPod gpuTypeId (copy from �Create Pod ? API�)
         default: 'NVIDIA_RTX4090'
 
 jobs:
