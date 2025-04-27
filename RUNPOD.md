@@ -1,9 +1,8 @@
-Below is a Markdown reformatting of the provided RunPod documentation, using ASCII-style headings (underlines made from `=` or `-`) and focusing on Python examples. Non-Python code examples (such as Go) are omitted. Code blocks are preserved and shown in triple backticks.
-
-Feel free to adjust headings or content to suit your needs!
+Below is the **entire** Markdown reformatting in one block, using ASCII-style headings (`=` and `-`) and focusing on Python examples. Non-Python examples have been omitted, and code blocks are preserved using triple backticks.
 
 ---
 
+```markdown
 OVERVIEW
 ========
 
@@ -107,14 +106,14 @@ Use a Network volume to attach to your Worker so that it can cache the LLM and d
 2. Navigate to the **Serverless** section and select **New Endpoint**.  
 3. Choose **CPU** and provide a name for your Endpoint (for example, `8 vCPUs 16 GB RAM`).  
 4. Configure your Worker settings according to your needs.  
-5. In the **Container Image** field, enter:  
+5. In the **Container Image** field, enter:
    ```
    pooyaharatian/runpod-ollama:0.0.8
-   ```  
+   ```
 6. In the **Container Start Command** field, specify the Ollama-supported model (e.g. `orca-mini` or `llama3.1`).  
 7. Allocate sufficient container disk space for your model (typically 20 GB).  
 8. *(Optional)* In Environment Variables, set `OLLAMA_MODELS` to `/runpod-volume` to store the model on your attached volume.  
-9. Click **Deploy** to initiate the setup.  
+9. Click **Deploy** to initiate the setup.
 
 Once the Worker is ready and your model is downloaded, proceed to send a test request.
 
@@ -197,17 +196,17 @@ Steps
 1. **Select RunPod Fast Stable Diffusion**  
    - Choose `1x RTX A5000` or `1x RTX 3090`  
    - Select **Start Jupyter Notebook**  
-   - Deploy.  
+   - Deploy.
 
 2. **Run the notebook**  
    - Select `RNPD-A1111.ipynb`.  
    - Enter your Hugging Face user access token.  
-   - Select the model you want to run: `v.1.5`, `v2-512`, or `v2-768`.  
+   - Select the model you want to run: `v.1.5`, `v2-512`, or `v2-768`.
 
 3. **Launch Automatic1111 on your pod**  
    - The cell labeled **Start Stable-Diffusion** will launch your pod.  
    - *(Optional)* Provide login credentials for this instance.  
-   - Select the blue link ending in `.proxy.runpod.net`.  
+   - Select the blue link ending in `.proxy.runpod.net`.
 
 4. **Explore Stable-Diffusion**  
    - Now that your pod is up and running Stable-Diffusion, explore and run the model.
@@ -228,23 +227,23 @@ In this tutorial, you'll run Fooocus in a Jupyter Notebook and then launch the G
 Prerequisites
 -------------
 
-- **Minimum**  
-  - 4GB Nvidia GPU memory (4GB VRAM)  
+- **Minimum**
+  - 4GB Nvidia GPU memory (4GB VRAM)
   - 8GB system memory (8GB RAM)
 
-- **RunPod infrastructure**  
-  1. Select **Pods** and choose `+ GPU Pod`.  
-  2. Choose a GPU instance with at least 4GB VRAM and 8GB RAM by selecting **Deploy**.  
-  3. Search for a template that includes Jupyter Notebook and select **Deploy**.  
-  4. Select **RunPod Pytorch 2**.  
-  5. Ensure **Start Jupyter Notebook** is selected.  
+- **RunPod infrastructure**
+  1. Select **Pods** and choose `+ GPU Pod`.
+  2. Choose a GPU instance with at least 4GB VRAM and 8GB RAM by selecting **Deploy**.
+  3. Search for a template that includes Jupyter Notebook and select **Deploy**.
+  4. Select **RunPod Pytorch 2**.
+  5. Ensure **Start Jupyter Notebook** is selected.
   6. Select **Choose** and then **Deploy**.
 
 Run the Notebook
 ----------------
 
-1. Select **Connect to Jupyter Lab**.  
-2. In the Jupyter Lab file browser, select **File > New > Notebook**.  
+1. Select **Connect to Jupyter Lab**.
+2. In the Jupyter Lab file browser, select **File > New > Notebook**.
 3. In the first cell, paste the following and then run the Notebook:
 
    ```bash
@@ -288,11 +287,11 @@ Prerequisites
 Step 1: Start a PyTorch Template on RunPod
 ------------------------------------------
 
-1. Log in to your RunPod account and choose `+ GPU Pod`.  
-2. Choose a GPU Pod like **A40**.  
-3. From the available templates, select the latest **PyTorch** template.  
-4. Select **Customize Deployment**.  
-   - Add the port `11434` to the list of exposed ports.  
+1. Log in to your RunPod account and choose `+ GPU Pod`.
+2. Choose a GPU Pod like **A40**.
+3. From the available templates, select the latest **PyTorch** template.
+4. Select **Customize Deployment**.
+   - Add the port `11434` to the list of exposed ports.
    - Add the following environment variable to your Pod to allow Ollama to bind to the HTTP port:
 
      ```
@@ -307,9 +306,9 @@ Once the Pod is up and running, you'll have access to a terminal in the RunPod i
 Step 2: Install Ollama
 ----------------------
 
-1. Select **Connect** and choose **Start Web Terminal**.  
-2. Make note of the Username and Password, then select **Connect to Web Terminal**.  
-3. Enter your username and password.  
+1. Select **Connect** and choose **Start Web Terminal**.
+2. Make note of the Username and Password, then select **Connect to Web Terminal**.
+3. Enter your username and password.
 
 Install `lshw` so Ollama can automatically detect and utilize your GPU:
 
@@ -365,18 +364,18 @@ RunPod's GPU Pods use custom Docker images to run your code. You cannot directly
 Prerequisites
 -------------
 
-- Docker Hub account and access token  
+- Docker Hub account and access token
 - Enough volume space for building an image
 
 Steps
 -----
 
-1. **Create a Pod**  
-   - Navigate to **Pods** and select **+ Deploy**.  
-   - Choose between GPU and CPU.  
-   - Specify an instance type, optionally attach a Network volume, etc.  
+1. **Create a Pod**
+   - Navigate to **Pods** and select **+ Deploy**.
+   - Choose between GPU and CPU.
+   - Specify an instance type, optionally attach a Network volume, etc.
 
-2. **Connect to your Pod** via the Web Terminal.  
+2. **Connect to your Pod** via the Web Terminal.
 
 3. **Clone the example GitHub repository**:
 
@@ -406,7 +405,7 @@ Steps
    nano BUILD.bazel
    ```
 
-   Replace `{YOUR_USERNAME}` with your Docker Hub username.  
+   Replace `{YOUR_USERNAME}` with your Docker Hub username.
 
 6. **Build and Push the Docker Image**:
 
@@ -425,36 +424,36 @@ This tutorial explains how to connect directly to your Pod instance through VSCo
 Prerequisites
 -------------
 
-- VSCode installed  
-- Basic command-line operations and SSH  
-- SSH key setup with RunPod (see [Use SSH](https://docs.runpod.io))  
-- A RunPod account  
+- VSCode installed
+- Basic command-line operations and SSH
+- SSH key setup with RunPod (see [Use SSH](https://docs.runpod.io))
+- A RunPod account
 
 Create a Pod instance
 ---------------------
 
-1. Navigate to **Pods** and select **+ Deploy**.  
-2. Choose between GPU and CPU.  
-3. *(Optional)* Specify a Network volume.  
-4. Select an instance type. For example, A40.  
-5. *(Optional)* Provide a template (e.g., RunPod Pytorch).  
-6. *(GPU only)* Specify your compute count.  
+1. Navigate to **Pods** and select **+ Deploy**.
+2. Choose between GPU and CPU.
+3. *(Optional)* Specify a Network volume.
+4. Select an instance type. For example, A40.
+5. *(Optional)* Provide a template (e.g., RunPod Pytorch).
+6. *(GPU only)* Specify your compute count.
 7. Review your configuration and select **Deploy On-Demand**.
 
 Establish a connection
 ----------------------
 
-1. From the Pods page, select the Pod you just deployed.  
+1. From the Pods page, select the Pod you just deployed.
 2. Select **Connect** and copy the `SSH over exposed TCP: (Supports SCP & SFTP)` command. E.g.:
 
    ```
    ssh root@123.456.789.80 -p 12345 -i ~/.ssh/id_ed12345
    ```
 
-3. Configure VSCode for remote development:  
+3. Configure VSCode for remote development:
 
-   - Install the **Dev Container** extension.  
-   - Open the Command Palette (CTRL+SHIFT+P) and choose **Remote-SSH: Add New SSH Host**.  
+   - Install the **Dev Container** extension.
+   - Open the Command Palette (CTRL+SHIFT+P) and choose **Remote-SSH: Add New SSH Host**.
    - Enter the copied SSH command and save to `~/.ssh/config`, like:
 
      ```
@@ -473,7 +472,7 @@ You are now connected to your Pod instance in VSCode.
 FINE TUNE AN LLM WITH AXOLOTL ON RUNPOD
 =======================================
 
-**note**  
+**note**
 RunPod provides an easier method to fine tune an LLM. For more information, see *Fine tune a model*.
 
 `axolotl` is a tool that simplifies training of large language models (LLMs). It provides a streamlined workflow for fine-tuning AI models. When combined with RunPod's GPUs, Axolotl enables efficient training of LLMs.
@@ -484,25 +483,25 @@ Setting up the environment
 --------------------------
 
 1. **Create a Pod**:
-   - Select a GPU instance.  
-   - Specify the Docker image:  
+   - Select a GPU instance.
+   - Specify the Docker image:
      ```
      axolotlai/axolotl-cloud:main-latest
      ```
-   - Deploy.  
+   - Deploy.
 
-2. **Wait** for the Pod to start up, then connect over secure SSH.  
+2. **Wait** for the Pod to start up, then connect over secure SSH.
 
 Preparing the dataset
 ---------------------
 
 You can use either:
 
-- **Local dataset**  
-  - Transfer it using `runpodctl` from your local machine to RunPod.  
+- **Local dataset**
+  - Transfer it using `runpodctl` from your local machine to RunPod.
 
-- **Hugging Face dataset**  
-  - Specify its path in the `lora.yaml` configuration.  
+- **Hugging Face dataset**
+  - Specify its path in the `lora.yaml` configuration.
 
 Updating requirements and preprocessing data
 -------------------------------------------
@@ -696,3 +695,8 @@ These functions allow you to dynamically manage computational resources on RunPo
 ---
 
 **That concludes the Markdown reformatting with ASCII-style headings and Python-focused examples.**
+```
+
+---
+
+That’s the entire re-formatted text in a single Markdown block. Feel free to adapt further as needed!

@@ -4,7 +4,7 @@ import os
 import requests
 
 RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", "")
-API_URL        = "https://api.runpod.ai/graphql"
+API_URL        = "https://api.runpod.io/graphql"
 
 def gq(query, variables=None):
     r = requests.post(
