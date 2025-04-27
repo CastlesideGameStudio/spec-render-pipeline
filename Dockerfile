@@ -1,4 +1,4 @@
-REM add a harmless comment to the stub Dockerfile 1.1.2
+# stub Dockerfile – safe to build in seconds
 FROM alpine:3.19
 LABEL maintainer="spec-render quick-start"
 CMD ["echo","placeholder image built successfully"]
