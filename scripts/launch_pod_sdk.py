@@ -4,8 +4,7 @@ Verbose RunPod launcher for GitHub Actions.
   • prints GPU list + slug mapping
   • dumps JSON payload sent to create_pod
   • prints full responses for create, status, and final logs
-Env vars (same as before):
-  RUNPOD_API_KEY, PROMPT_GLOB, IMAGE_TAG, RUNPOD_GPU_TYPE
+Env vars: RUNPOD_API_KEY, PROMPT_GLOB, IMAGE_TAG, RUNPOD_GPU_TYPE
 """
 import os, sys, glob, time, json, pathlib, runpod
 
@@ -13,15 +12,16 @@ runpod.api_key = os.environ["RUNPOD_API_KEY"]
 
 def log(msg): print("[launcher]", msg, flush=True)
 
-# ─── helper: map displayName → slug ────────────────────────────
-def gpu_slug(display_name: str) -> str:
+# ─── helper: accept slug OR displayName ────────────────────────
+def gpu_slug(user_val: str) -> str:
+    """Return the slug-id that create_pod needs."""
     log("Fetching GPU catalog …")
-    gpu_table = runpod.get_gpus()          # [{id,displayName,…}, …]
-    for g in gpu_table:
+    for g in runpod.get_gpus():           # [{id,displayName,…}, …]
         log(f"  {g['displayName']:<25} → {g['id']}")
-        if g["displayName"] == display_name:
+        if g["displayName"] == user_val or g["id"] == user_val:
             return g["id"]
-    sys.exit(f"[launcher] GPU '{display_name}' not found.")
+    sys.exit(f"[launcher] GPU '{user_val}' not found.\n"
+             "Hint: use a displayName listed above or its id slug.")
 
 # ─── gather prompts ───────────────────────────────────────────
 prompts = []
