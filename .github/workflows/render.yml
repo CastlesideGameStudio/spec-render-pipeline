@@ -1,17 +1,17 @@
-name: Launch Render Batch2
+name: Launch Render Batch
 
 on:
   workflow_dispatch:
     inputs:
       prompt_glob:
-        description: NDJSON glob to include in this batch
-        default: 'addendums/**/*.ndjson'
+        description: NDJSON glob to include
+        default: addendums/**/*.ndjson
       image_tag:
         description: Container tag (SHA or "latest")
-        default: 'latest'
+        default: latest
       gpu_type:
-        description: RunPod gpuTypeId (see "Create Pod -> API")
-        default: 'NVIDIA_RTX4090'
+        description: RunPod gpuTypeId
+        default: NVIDIA_RTX4090
 
 jobs:
   render:
@@ -21,7 +21,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - name: Install requests
         run: pip install requests
