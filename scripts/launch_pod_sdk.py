@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-import os, sys, glob, time, json, pathlib, runpod, traceback
+"""
+Verbose RunPod launcher for GitHub Actions.
+Prints GPU catalog, payload, raw error JSON, and final logs.
+Env vars: RUNPOD_API_KEY, PROMPT_GLOB, IMAGE_TAG, RUNPOD_GPU_TYPE
+"""
+import os, sys, glob, time, json, pathlib, traceback, runpod
 
 runpod.api_key = os.environ["RUNPOD_API_KEY"]
-def log(msg): print("[launcher]", msg, flush=True)
-
-# ─── credit check ──────────────────────────────────────────────
-acct = runpod.get_account()
-log(f"Credits: {acct['creditsRemaining']} — Spend rate: {acct['creditsPerHour']} /h")
+def log(m): print("[launcher]", m, flush=True)
 
 # ─── helper: displayName OR slug → slug ───────────────────────
-def gpu_slug(user_val: str) -> str:
+def gpu_slug(val: str) -> str:
     log("Fetching GPU catalog …")
     for g in runpod.get_gpus():
         log(f"  {g['displayName']:<24} → {g['id']}")
-        if g["displayName"] == user_val or g["id"] == user_val:
+        if g["displayName"] == val or g["id"] == val:
             return g["id"]
-    sys.exit(f"[launcher] GPU '{user_val}' not found.")
+    sys.exit(f"[launcher] GPU '{val}' not found.")
 
 # ─── collect prompts ──────────────────────────────────────────
 prompts = []
@@ -44,23 +45,22 @@ log("create_pod payload:\n" + json.dumps(payload, indent=2))
 try:
     pod = runpod.create_pod(**payload)
 except Exception as e:
-    log("RunPod threw an exception:")
+    log("RunPod SDK raised:")
     traceback.print_exc()
-    # if SDK wrapped an error, print the raw response if available
     if hasattr(e, "response") and e.response is not None:
-        log("Raw response:\n" + e.response.text[:2000])
+        log("--- raw RunPod error JSON ---\n" + e.response.text[:2000])
     sys.exit(1)
 
 log("create_pod response:\n" + json.dumps(pod, indent=2))
 pod_id = pod["id"]; log(f"Pod ID {pod_id}")
 
-# ─── poll phase ───────────────────────────────────────────────
+# ─── poll until finished ─────────────────────────────────────
 while True:
     info = runpod.get_pod(pod_id)
     phase = info["phase"]; runtime = info.get("runtime")
     log(f"Phase {phase:<9} Runtime {runtime}")
     if phase in ("SUCCEEDED", "FAILED"):
-        logs = runpod.get_pod_logs(pod_id)
-        log("--- tail of pod logs ---\n" + logs[-4000:])
+        tail = runpod.get_pod_logs(pod_id)[-4000:]
+        log("--- tail of pod logs ---\n" + tail)
         sys.exit(0 if phase == "SUCCEEDED" else 1)
     time.sleep(20)
