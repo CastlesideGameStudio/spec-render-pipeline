@@ -1,16 +1,36 @@
+name: Build & Push Container
+
+# ────────────────────────────── triggers ──────────────────────────────
+on:
+  # manual button in the Actions tab
+  workflow_dispatch:          
+
+  # auto-run when these paths change
+  push:
+    paths:
+      - 'Dockerfile'
+      - 'graphs/**'
+      - 'specs/**'
+      - '.github/workflows/build.yml'
+
+# ────────────────────────────── job ───────────────────────────────────
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
     steps:
+      # 1. Check out repo
       - uses: actions/checkout@v4
 
-      # NEW step – create a lowercase repo string
+      # 2. Derive lowercase repo (Docker/OCI tags must be lowercase)
       - name: Derive lowercase repo
-        run: echo "LC_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        run: |
+          echo "LC_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      # 3. Set up Buildx and log in to GHCR
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -18,6 +38,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
+      # 4. Build and push the placeholder image
       - name: Build placeholder image
         run: |
           docker build -t ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} .
