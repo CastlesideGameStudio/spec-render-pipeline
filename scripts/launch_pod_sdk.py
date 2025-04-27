@@ -1,107 +1,97 @@
 #!/usr/bin/env python3
 """
-RunPod GPU-picker (vRAM band preference)
-────────────────────────────────────────
-• Accepts one env-var knob  MIN_VRAM_GB   (default 24)
-• Computes                 MAX_VRAM_GB   = 2 × MIN
-• Chooses a COMMUNITY GPU whose vRAM is
-      MIN_VRAM_GB ≤ vRAM ≤ MAX_VRAM_GB
-  preferring vRAM == MIN  (i.e. *exactly* 24 by default).
+RunPod launcher – pick a Community GPU by vRAM only (no availability field
+required).  Min/max are expressed as environment variables:
 
-Other required env-vars (same as before):
+  MIN_VRAM_GB      default 24   ← required vRAM
+  MAX_PRICE_PER_HR default none ← ignore if blank
+
+Other required env vars come from the GitHub Actions workflow:
   RUNPOD_API_KEY, PROMPT_GLOB, IMAGE_TAG
 """
-from __future__ import annotations
 import os, sys, glob, time, json, pathlib, traceback, runpod
-
-# ─── utility ───────────────────────────────────────────────────
-def log(msg: str) -> None:
-    print("[launcher]", msg, flush=True)
-
-def int_env(name: str, default: int) -> int:
-    try:
-        txt = os.getenv(name, "").strip()
-        return int(txt) if txt else default
-    except ValueError:
-        return default
-
-# ─── constants ────────────────────────────────────────────────
 runpod.api_key = os.environ["RUNPOD_API_KEY"]
-MIN_VRAM_GB    = int_env("MIN_VRAM_GB", 24)
-MAX_VRAM_GB    = MIN_VRAM_GB * 2
 
+# ────────── user limits ──────────
+MIN_VRAM_GB = int(os.getenv("MIN_VRAM_GB", 24))
+MAX_VRAM_GB = MIN_VRAM_GB * 2                  # “at most 2× the min”
+MAX_PRICE   = os.getenv("MAX_PRICE_PER_HR")    # blank → ignore price
+MAX_PRICE   = float(MAX_PRICE) if MAX_PRICE else None
+
+def log(msg): print("[launcher]", msg, flush=True)
 log(f"vRAM window → {MIN_VRAM_GB} – {MAX_VRAM_GB} GB (prefers {MIN_VRAM_GB})")
 
-# ─── pick a GPU ───────────────────────────────────────────────
-def pick_gpu() -> str:
-    gpus = runpod.get_gpus()             # list[dict]
-    log(f"{'GPU':<27} {'vRAM':>5}  cloud")
-    for g in gpus:
-        log(f"{g['displayName']:<27} {g.get('memoryInGb','?'):>4}G  {g.get('cloudType','?')}")
-    log("—" * 55)
-
-    eligible = [
-        g for g in gpus
-        if g.get("cloudType") == "COMMUNITY"
-        and MIN_VRAM_GB <= g.get("memoryInGb", 0) <= MAX_VRAM_GB
-    ]
-    if not eligible:
-        sys.exit("[launcher] No Community GPU in requested vRAM band.")
-
-    # 1️⃣ perfect-fit (exact minimum) wins
-    exact = [g for g in eligible if g.get("memoryInGb") == MIN_VRAM_GB]
-    chosen = (exact or sorted(eligible, key=lambda g: g.get("memoryInGb")))[0]
-
-    log(f"Chosen → {chosen['displayName']}  {chosen['memoryInGb']} GB")
-    return chosen["id"]
-
-# ─── collect prompts ──────────────────────────────────────────
-prompts: list[str] = []
+# ────────── prompt bundle ─────────
+prompts = []
 for p in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
     prompts += pathlib.Path(p).read_text().splitlines()
-
 if not prompts:
     sys.exit("[launcher] No prompts match " + os.environ["PROMPT_GLOB"])
 log(f"Collected {len(prompts)} prompt lines")
 
-# ─── create-pod payload ───────────────────────────────────────
-env_block = {"PROMPTS_NDJSON": "\n".join(prompts)[:48_000]}   # < 50 kB limit
-image_ref = (
-    f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
-    f"/spec-render:{os.environ['IMAGE_TAG']}"
-)
+env_block = {"PROMPTS_NDJSON": "\n".join(prompts)[:48_000]}
+image_ref = (f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
+             f"/spec-render:{os.environ['IMAGE_TAG']}")
+
+# ────────── GPU catalogue ─────────
+gpus = runpod.get_gpus()   # list of dicts
+log(f"{'GPU':<28} {'vRAM':>5}  $/hr")
+for g in gpus:
+    log(f"{g['displayName']:<28} "
+        f"{g.get('memoryInGb','?'):>4}G  {g.get('usdPerHr','?')}")
+
+log("—" * 60)
+
+def eligible(g):
+    vram = g.get("memoryInGb", 0)
+    if not (MIN_VRAM_GB <= vram <= MAX_VRAM_GB):
+        return False
+    if MAX_PRICE is not None and g.get("usdPerHr") and g["usdPerHr"] > MAX_PRICE:
+        return False
+    # if RunPod ever omits price, treat as “OK”
+    return True
+
+candidates = [g for g in gpus if eligible(g)]
+if not candidates:
+    sys.exit("[launcher] No GPU satisfies the vRAM (and optional price) limits.")
+
+# pick the card closest to MIN_VRAM_GB, then cheaper price if tie
+best = sorted(candidates,
+              key=lambda g: (abs(g["memoryInGb"] - MIN_VRAM_GB),
+                             g.get("usdPerHr", 0)))[0]
+
+log(f"Chosen → {best['displayName']}  {best['memoryInGb']} GB  "
+    f"${best.get('usdPerHr','?')}/hr")
+
+# ────────── launch pod ────────────
 payload = {
-    "name":         "spec-render",
-    "gpu_type_id":  pick_gpu(),
-    "gpu_count":    1,
-    "image_name":   image_ref,
-    "cloud_type":   "COMMUNITY",
+    "name"        : "spec-render",
+    "gpu_type_id" : best["id"],
+    "gpu_count"   : 1,
+    "image_name"  : image_ref,
+    "cloud_type"  : "COMMUNITY",
     "volume_in_gb": 20,
-    "env":          env_block,
+    "env"         : env_block,
 }
 log("create_pod payload:\n" + json.dumps(payload, indent=2))
 
-# ─── launch pod ───────────────────────────────────────────────
 try:
     pod = runpod.create_pod(**payload)
-except Exception:
+except Exception as e:
     log("RunPod SDK raised:")
     traceback.print_exc()
+    if hasattr(e, "response") and e.response is not None:
+        log("--- raw RunPod error JSON ---\n" + e.response.text[:2000])
     sys.exit(1)
 
 log("create_pod response:\n" + json.dumps(pod, indent=2))
 pod_id = pod["id"]; log(f"Pod ID {pod_id}")
 
-# ─── poll until completion ────────────────────────────────────
+# ────────── tail until done ───────
 while True:
-    info   = runpod.get_pod(pod_id)
-    phase  = info["phase"]
-    runtime = info.get("runtime")
-    log(f"Phase {phase:<9}  Runtime {runtime}")
-
-    if phase in ("SUCCEEDED", "FAILED"):
-        tail = runpod.get_pod_logs(pod_id)[-4000:]
-        log("--- tail logs ---\n" + tail)
-        sys.exit(0 if phase == "SUCCEEDED" else 1)
-
+    info = runpod.get_pod(pod_id)
+    log(f"Phase {info['phase']:<9}  Runtime {info.get('runtime')}")
+    if info["phase"] in ("SUCCEEDED", "FAILED"):
+        log("--- tail pod logs ---\n" + runpod.get_pod_logs(pod_id)[-4000:])
+        sys.exit(0 if info["phase"] == "SUCCEEDED" else 1)
     time.sleep(20)
