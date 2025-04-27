@@ -10,7 +10,7 @@ on:
         description: Container tag (SHA or "latest")
         default: 'latest'
       gpu_type:
-        description: RunPod gpuTypeId (leave blank to use repo secret)
+        description: Override GPU type string (leave blank to use secret)
         default: ''
 
 jobs:
@@ -18,24 +18,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Check out repo ─────────────────────────────────────────
+      # 1. Checkout repo
       - uses: actions/checkout@v4
 
-      # ── 2. Python 3.11 ────────────────────────────────────────────
+      # 2. Python 3.11 runtime
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ── 3. Tiny runtime deps ──────────────────────────────────────
+      # 3. Install tiny dependency
       - name: Install requests
         run: pip install requests
 
-      # ── 4. Launch the batch on RunPod ─────────────────────────────
+      # 4. Launch the RunPod batch
       - name: Launch RunPod batch
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
           PROMPT_GLOB:    ${{ inputs.prompt_glob }}
           IMAGE_TAG:      ${{ inputs.image_tag }}
-          # If the caller leaves gpu_type blank, fall back to the secret.
+          # if caller leaves gpu_type blank, use the secret
           RUNPOD_GPU_TYPE: ${{ inputs.gpu_type != '' && inputs.gpu_type || secrets.RUNPOD_GPU_TYPE }}
         run: python scripts/launch_pod_rest.py
