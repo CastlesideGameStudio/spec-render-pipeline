@@ -1,44 +1,40 @@
 #!/usr/bin/env python3
 """
-launch_pod_cli.py – start a RunPod A6000 pod, stream status, exit on completion.
+launch_pod_cli.py – launch a raw A6000 Community pod with your GHCR image,
+stream status, exit with pod result.  Called by GitHub Actions.
 
-Called by GitHub Actions. Expects env vars:
+Needs env vars:
   RUNPOD_API_KEY  – repo secret
   PROMPT_GLOB     – NDJSON glob from workflow_dispatch
-  IMAGE_TAG       – GHCR image tag from workflow_dispatch
+  IMAGE_TAG       – GHCR image tag (SHA or 'latest')
 """
 import os, sys, glob, time, json, random, pathlib, requests
 
-API = "https://api.runpod.io/graphql"          # correct endpoint
-TEMPLATE_ID = "stable-diffusion-comfyui-a6000" # Community Cloud template
-MAX_RUNTIME_MIN = 60                           # hard fail-safe
+API = "https://api.runpod.io/graphql"
+MAX_RUNTIME_MIN = 60
 
 def log(msg): print("[launcher]", msg, flush=True)
 
-# ───────────────────── helpers ──────────────────────
+# ───────── GraphQL helper with retries + verbose errors ───────────
 def gq(query, variables=None, tries=5):
-    """GraphQL call with retry and verbose error echo."""
     payload = {"query": query, "variables": variables or {}}
     headers = {"Authorization": os.environ["RUNPOD_API_KEY"]}
 
     for attempt in range(tries):
         r = requests.post(API, json=payload, headers=headers)
 
-        # Retry on transient gateway / rate-limit errors
         if r.status_code in (429, 502, 503, 504):
             wait = 2 ** attempt + random.random()
-            log(f"RunPod {r.status_code} – retry #{attempt+1} in {wait:.1f}s")
+            log(f"RunPod {r.status_code} – retry {attempt+1}/{tries} in {wait:.1f}s")
             time.sleep(wait)
             continue
 
-        if not r.ok:                   # Any other HTTP error
-            log(f"HTTP {r.status_code} response:")
-            log(r.text.strip()[:1000]) # print up to 1 KB
+        if not r.ok:
+            log(f"HTTP {r.status_code} response:\n{r.text[:1000]}")
             r.raise_for_status()
 
         data = r.json()
         if "errors" in data and data["errors"]:
-            # GraphQL-level error – print and bail
             log("API errors:\n" + json.dumps(data["errors"], indent=2))
             raise RuntimeError("RunPod GraphQL returned errors")
 
@@ -46,14 +42,20 @@ def gq(query, variables=None, tries=5):
 
     raise RuntimeError(f"RunPod API still failing after {tries} retries")
 
-def start_pod(image, env):
+# ───────── payload builders ───────────────────────────────────────
+def start_pod(image, env_dict):
+    env_array = [{"key": k, "value": v} for k, v in env_dict.items()]
     q = "mutation($in:PodInput!){ podLaunch(input:$in){ podId } }"
     v = {"in": {
-        "templateId": TEMPLATE_ID,
-        "cloudType":  "COMMUNITY",
-        "imageName":  image,           # remove this line if your template forbids overrides
-        "env":        env,
-        "containerDiskInGb": 20
+        "name":        "spec-render",
+        "cloudType":   "COMMUNITY",
+        "gpuTypeId":   "NVIDIA_A6000",
+        "gpuCount":    1,
+        "imageName":   image,
+        "env":         env_array,
+        "volumeInGb":  20,
+        "containerDiskInGb": 20,
+        "dockerArgs":  ""
     }}
     return gq(q, v)["podLaunch"]["podId"]
 
@@ -65,7 +67,7 @@ def pod_logs(pid):
     q = "query($id:ID!){ podLogs(podId:$id) }"
     return gq(q, {"id": pid})["podLogs"]
 
-# ───────────────────── main ─────────────────────────
+# ───────── gather prompts & launch ────────────────────────────────
 prompts = []
 for path in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
     prompts += pathlib.Path(path).read_text().splitlines()
@@ -89,7 +91,7 @@ while True:
 
     if phase in ("SUCCEEDED", "FAILED"):
         log("--- tail of pod logs ---")
-        log(pod_logs(pod_id)[-4000:])        # last few KB
+        log(pod_logs(pod_id)[-4000:])
         sys.exit(0 if phase == "SUCCEEDED" else 1)
 
     if time.time() - start > MAX_RUNTIME_MIN * 60:
