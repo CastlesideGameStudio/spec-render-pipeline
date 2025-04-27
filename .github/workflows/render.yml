@@ -11,7 +11,7 @@ on:
         default: 'latest'
       gpu_type:
         description: "For On-Demand. Examples: 'NVIDIA A40', 'NVIDIA GeForce RTX 3090', etc."
-        default: 'NVIDIA A40'
+        default: 'NVIDIA GeForce RTX 3090'
 
 jobs:
   render:
@@ -28,13 +28,8 @@ jobs:
       - name: Install Python deps
         run: pip install requests
 
-      # 1) Print your current RunPod account info & balance via REST
-      - name: Print RunPod balance
-        env:
-          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-        run: python scripts/print_balance.py
-
-      # 2) Launch a single On-Demand Pod with the chosen GPU type
+      # Directly launch a single On-Demand Pod with the chosen GPU type,
+      # skipping any "print balance" step.
       - name: Launch On-Demand Pod
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}

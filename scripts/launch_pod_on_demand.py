@@ -5,7 +5,7 @@ Expects env:
   RUNPOD_API_KEY  – your "Bearer" token
   PROMPT_GLOB     – NDJSON pattern (default "addendums/**/*.ndjson")
   IMAGE_TAG       – container tag (default "latest")
-  GPU_TYPE        – e.g. "NVIDIA A40", "NVIDIA RTX A5000", etc.
+  GPU_TYPE        – e.g. "NVIDIA GeForce RTX 3090", "NVIDIA A40", etc.
 """
 import os
 import sys
@@ -14,10 +14,9 @@ import time
 import pathlib
 import requests
 
-# Note the "/v1" in the base URL now
-BASE_URL   = "https://rest.runpod.io/v1"
-API_PODS   = f"{BASE_URL}/pod"       # for POST and GET
-API_LOGS   = f"{BASE_URL}/pod/logs"  # for GET logs
+BASE_URL = "https://rest.runpod.io/v1"
+API_PODS = f"{BASE_URL}/pods"      # note the plural "/pods" from docs
+API_LOGS = f"{BASE_URL}/pods/logs"
 
 def main():
     runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
@@ -26,7 +25,7 @@ def main():
 
     prompt_glob = os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")
     image_tag   = os.getenv("IMAGE_TAG", "latest")
-    gpu_type    = os.getenv("GPU_TYPE", "NVIDIA A40")
+    gpu_type    = os.getenv("GPU_TYPE", "NVIDIA GeForce RTX 3090")
 
     # 1) Gather NDJSON lines
     all_lines = []
@@ -37,7 +36,7 @@ def main():
         all_lines.extend(lines)
 
     if not all_lines:
-        sys.exit(f"[ERROR] No prompts found matching {prompt_glob}.")
+        sys.exit(f"[ERROR] No prompts found matching '{prompt_glob}'.")
 
     print(f"[INFO] Found {len(all_lines)} total lines from '{prompt_glob}'")
 
@@ -57,7 +56,7 @@ def main():
     # 2) Create the pod
     payload = {
         "name":         "spec-render-on-demand",
-        "cloud_type":   "SECURE",         # On-Demand
+        "cloud_type":   "SECURE",      # On-Demand
         "gpuTypeId":    gpu_type,
         "gpuCount":     1,
         "volumeInGb":   20,
@@ -81,14 +80,14 @@ def main():
 
     print(f"[INFO] Pod created with ID={pod_id}")
 
-    # 3) Poll until not "Running"
+    # 3) Poll until status != "Running"
     while True:
         time.sleep(20)
         r_stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
         if not r_stat.ok:
-            print("[WARN] GET /pod/<id> failed, ignoring temporarily")
+            print("[WARN] GET /pods/<id> failed, ignoring temporarily")
             continue
-        status_data = r_stat.json()  # e.g. {"id":..., "status":"Running", ...}
+        status_data = r_stat.json()  # e.g. {"id":"...", "status":"Running", ...}
         status = status_data.get("status")
         print(f"[INFO] Pod status={status}")
 
@@ -97,12 +96,12 @@ def main():
             break
 
     # Optional: retrieve logs
-    # GET /pod/<podId>/logs
+    # GET /pods/{podId}/logs
     r_logs = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
     if r_logs.ok:
         logs_txt = r_logs.text
         print("------ Pod logs ------")
-        print(logs_txt[-3000:])  # print last 3000 chars, if large
+        print(logs_txt[-3000:])  # print last 3000 chars if large
     else:
         print("[WARN] Could not fetch logs. Status =", r_logs.status_code)
 
