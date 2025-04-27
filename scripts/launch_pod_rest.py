@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
-"""
-Launch a RunPod COMMUNITY pod via REST v2 and stream status.
-
-Required env vars:
-  RUNPOD_API_KEY   – bearer token
-  PROMPT_GLOB      – NDJSON glob
-  IMAGE_TAG        – GHCR tag
-  RUNPOD_GPU_TYPE  – e.g. 'NVIDIA GeForce RTX 4090'
-"""
 import os, sys, glob, time, pathlib, requests, json
 
-API  = "https://rest.runpod.io/v2"
+API  = "https://api.runpod.io/v2"           # ← changed
 HEAD = {
     "Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}",
     "Content-Type":  "application/json",
@@ -29,36 +20,39 @@ if not prompts:
     quit("No prompts match " + os.environ["PROMPT_GLOB"])
 
 env_block = { "PROMPTS_NDJSON": "\n".join(prompts)[:48000] }
-
-image = (f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
-         f"/spec-render:{os.environ['IMAGE_TAG']}")
-gpu_type = os.environ["RUNPOD_GPU_TYPE"]
+image     = (f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
+             f"/spec-render:{os.environ['IMAGE_TAG']}")
+gpu_type  = os.environ["RUNPOD_GPU_TYPE"]
 
 # ─── launch pod ─────────────────────────────────────────────────
 payload = {
     "name"      : "spec-render",
     "cloudType" : "COMMUNITY",
-    "gpuTypeId" : gpu_type,      # e.g. 'NVIDIA GeForce RTX 4090'
+    "gpuTypeId" : gpu_type,
     "gpuCount"  : 1,
     "imageName" : image,
     "volumeInGb": 20,
-    "env"       : env_block      # object in REST v2
+    "env"       : env_block
 }
 resp = requests.post(f"{API}/pods", headers=HEAD, json=payload)
 
-if not resp.ok:                             # 4xx / 5xx
+if not resp.ok:
     quit(f"HTTP {resp.status_code}\n{resp.text[:2000]}")
 
 try:
-    pod_id = resp.json()["id"]              # REST v2 returns 'id'
-except Exception as e:
-    quit("Non-JSON response:\n" + resp.text[:1000])
+    data = resp.json()
+except ValueError:
+    quit("Non-JSON reply:\n" + resp.text[:1000])
+
+pod_id = data.get("id") or data.get("podId")
+if not pod_id:
+    quit("No pod ID in reply:\n" + json.dumps(data, indent=2))
 
 print("[launcher] Pod ID", pod_id, flush=True)
 
-# ─── poll status until finished ─────────────────────────────────
+# ─── poll status ───────────────────────────────────────────────
 while True:
-    info  = requests.get(f"{API}/pods/{pod_id}", headers=HEAD).json()
+    info = requests.get(f"{API}/pods/{pod_id}", headers=HEAD).json()
     phase = info["phase"]; runtime = info.get("runtime")
     print(f"[launcher] Phase {phase:<9} Runtime {runtime}", flush=True)
 
