@@ -1,11 +1,3 @@
-name: Build & Push Container
-on:
-  push:
-    paths:
-      - 'Dockerfile'
-      - 'graphs/**'
-      - 'specs/**'
-      - '.github/workflows/build.yml'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,13 +6,19 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      # NEW step – create a lowercase repo string
+      - name: Derive lowercase repo
+        run: echo "LC_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
+
       - name: Build placeholder image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}/spec-render:${{ github.sha }} .
-          docker push ghcr.io/${{ github.repository }}/spec-render:${{ github.sha }}
+          docker build -t ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} .
+          docker push ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }}
