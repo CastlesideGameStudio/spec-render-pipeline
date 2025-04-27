@@ -1,43 +1,38 @@
 #!/usr/bin/env python3
 """
-Launch a COMMUNITY pod via the runpod-python SDK and stream status.
-
-Env vars injected by GitHub Actions:
-  RUNPOD_API_KEY   – bearer token  (secret)
-  PROMPT_GLOB      – NDJSON glob   (workflow input)
-  IMAGE_TAG        – GHCR tag      (workflow input)
-  RUNPOD_GPU_TYPE  – e.g. 'NVIDIA GeForce RTX 4090'  (secret or input)
+Launch a Community pod via the runpod-python SDK and stream status.
+Env vars: RUNPOD_API_KEY, PROMPT_GLOB, IMAGE_TAG, RUNPOD_GPU_TYPE
 """
 import os, sys, glob, time, pathlib, runpod
 
 runpod.api_key = os.environ["RUNPOD_API_KEY"]
 
-# ─── collect prompts ────────────────────────────────────────────
+# ─── collect prompts ───────────────────────────────────────────
 prompts = []
 for p in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
     prompts += pathlib.Path(p).read_text().splitlines()
 if not prompts:
-    sys.exit("[launcher] No prompts matched " + os.environ["PROMPT_GLOB"])
+    sys.exit("[launcher] No prompts match " + os.environ["PROMPT_GLOB"])
 
 env_block = { "PROMPTS_NDJSON": "\n".join(prompts)[:48000] }
 image     = (f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
              f"/spec-render:{os.environ['IMAGE_TAG']}")
 gpu_type  = os.environ["RUNPOD_GPU_TYPE"]
 
-# ─── create pod (SDK maps to createOnDemandPod) ─────────────────
+# ─── create pod (note snake-case params) ───────────────────────
 pod = runpod.create_pod(
-    name       = "spec-render",
-    gpuTypeId  = gpu_type,
-    cloudType  = "COMMUNITY",
-    imageName  = image,
-    gpuCount   = 1,
-    volumeInGb = 20,
-    env        = env_block        # can pass dict directly
+    name         = "spec-render",
+    gpu_type_id  = gpu_type,
+    gpu_count    = 1,
+    image_name   = image,
+    cloud_type   = "COMMUNITY",
+    volume_in_gb = 20,
+    env          = env_block          # dict is fine
 )
 pod_id = pod["id"]
 print("[launcher] Pod ID", pod_id, flush=True)
 
-# ─── poll until finished ────────────────────────────────────────
+# ─── poll until finished ───────────────────────────────────────
 while True:
     info = runpod.get_pod(pod_id)
     phase = info["phase"]; runtime = info.get("runtime")
