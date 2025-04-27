@@ -9,28 +9,36 @@ on:
       image_tag:
         description: Container tag (SHA or "latest")
         default: 'latest'
-      min_vram:
-        description: "Minimum GPU vRAM in GB (default 24)"
-        default: '24'
+      gpu_type:
+        description: "For On-Demand, examples include 'NVIDIA A40', 'NVIDIA GeForce RTX 3090', etc."
+        default: 'NVIDIA A40'
 
 jobs:
   render:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - name: Check out repo
+        uses: actions/checkout@v4
 
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install RunPod SDK
-      run: pip install --upgrade runpod
+      - name: Install Python deps
+        run: pip install requests
 
-    - name: Launch RunPod batch
-      env:
-        RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-        PROMPT_GLOB   : ${{ inputs.prompt_glob }}
-        IMAGE_TAG     : ${{ inputs.image_tag }}
-        MIN_VRAM_GB   : ${{ inputs.min_vram }}
-      run: python scripts/launch_pod_sdk.py
+      # 1) Print your current RunPod balance in the log
+      - name: Print RunPod balance
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: python scripts/print_balance.py
+
+      # 2) Launch a single On-Demand Pod with the chosen GPU type
+      - name: Launch On-Demand Pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          PROMPT_GLOB:    ${{ inputs.prompt_glob }}
+          IMAGE_TAG:      ${{ inputs.image_tag }}
+          GPU_TYPE:       ${{ inputs.gpu_type }}
+        run: python scripts/launch_pod_on_demand.py
