@@ -1,4 +1,4 @@
-name: Launch Render Batch
+name: Launch Render Batch    # ← must be the FIRST non-comment line, no indent!
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
         description: NDJSON glob to include in this batch
         default: 'addendums/**/*.ndjson'
       image_tag:
-        description: Container tag (SHA or "latest") to run
+        description: Container tag (SHA or "latest")
         default: 'latest'
       gpu_type:
         description: RunPod gpuTypeId (copy from “Create Pod → API”)
@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python deps
+      - name: Install requests
         run: pip install requests
 
       - name: Launch RunPod batch
