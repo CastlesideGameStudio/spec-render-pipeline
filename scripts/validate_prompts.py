@@ -1,4 +1,3 @@
-# scripts/validate_prompts.py  (minimal placeholder)
 import sys, json, pathlib
 def is_ascii(s): return all(ord(c) < 128 for c in s)
 errors = 0
