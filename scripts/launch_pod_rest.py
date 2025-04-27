@@ -1,43 +1,45 @@
 #!/usr/bin/env python3
-"""
-Launch a RunPod Community-Cloud pod via REST v1 and stream status.
-Required env vars (Github Actions passes them):
-  RUNPOD_API_KEY   Bearer token (repo secret)
-  PROMPT_GLOB      *.ndjson glob
-  IMAGE_TAG        ghcr tag
-  RUNPOD_GPU_TYPE  e.g. 'NVIDIA GeForce RTX 4090'
-"""
-import os, sys, glob, time, pathlib, json, requests
+"""Launch RunPod pod via REST v2 and stream status."""
+import os, sys, glob, time, pathlib, requests, json
 
-API   = "https://rest.runpod.io"
-HEAD  = {"Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}",
-         "Content-Type":  "application/json"}
+API = "https://rest.runpod.io/v2"
+HEAD = {
+    "Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}",
+    "Content-Type":  "application/json"
+}
 
-# ─── join prompts ──────────────────────────────
+# ─── gather prompts ─────────────────────────────────────────────
 prompts = []
 for p in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
     prompts += pathlib.Path(p).read_text().splitlines()
 if not prompts:
     sys.exit("No prompts matched " + os.environ["PROMPT_GLOB"])
-env_block = { "PROMPTS_NDJSON": "\n".join(prompts)[:48000] }
 
-# ─── launch pod ────────────────────────────────
-image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}/spec-render:{os.environ['IMAGE_TAG']}"
+env_block = { "PROMPTS_NDJSON": "\n".join(prompts)[:48000] }
+image = (f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
+         f"/spec-render:{os.environ['IMAGE_TAG']}")
+gpu_type = os.environ["RUNPOD_GPU_TYPE"]
+
+# ─── launch pod ─────────────────────────────────────────────────
 payload = {
     "name":       "spec-render",
     "cloudType":  "COMMUNITY",
-    "gpuTypeId":  os.environ["RUNPOD_GPU_TYPE"],   # 'NVIDIA GeForce RTX 4090'
+    "gpuTypeId":  gpu_type,
     "gpuCount":   1,
     "imageName":  image,
     "volumeInGb": 20,
-    "dockerArgs": "",
     "env":        env_block
 }
-pod = requests.post(f"{API}/pod/launch", headers=HEAD, json=payload).json()
-pod_id = pod["podId"]
+
+r = requests.post(f"{API}/pod/launch", headers=HEAD, json=payload)
+if r.status_code != 200:
+    print("[launcher] HTTP", r.status_code, "response:\n", r.text)
+    r.raise_for_status()
+
+pod_id = r.json()["podId"]
 print("[launcher] Pod ID", pod_id, flush=True)
 
-# ─── poll until done ───────────────────────────
+# ─── poll until done ───────────────────────────────────────────
 while True:
     info = requests.get(f"{API}/pod/{pod_id}", headers=HEAD).json()
     phase = info["phase"]; runtime = info.get("runtime")
