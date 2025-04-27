@@ -4,37 +4,34 @@ on:
   workflow_dispatch:
     inputs:
       prompt_glob:
-        description: NDJSON glob to include in the batch
+        description: NDJSON glob
         default: 'addendums/**/*.ndjson'
       image_tag:
-        description: Container tag (SHA or "latest")
+        description: Container tag (SHA or 'latest')
         default: 'latest'
-      gpu_type:
-        description: Override GPU string (leave blank to use secret)
+      min_vram:
+        description: "Minimum VRAM (GB) required"
+        default: '24'
+      max_price:
+        description: "Max $/hr (blank = no limit)"
         default: ''
 
 jobs:
   render:
     runs-on: ubuntu-latest
-
     steps:
-      # 1 ▸ Check out the repo
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with: { python-version: '3.11' }
 
-      # 2 ▸ Python runtime
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Install RunPod SDK
+      run: pip install --upgrade runpod
 
-      # 3 ▸ Tiny dependency: official RunPod SDK
-      - name: Install runpod SDK
-        run: pip install runpod==1.*
-
-      # 4 ▸ Launch the batch
-      - name: Launch RunPod batch
-        env:
-          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-          PROMPT_GLOB:    ${{ inputs.prompt_glob }}
-          IMAGE_TAG:      ${{ inputs.image_tag }}
-          RUNPOD_GPU_TYPE: ${{ inputs.gpu_type != '' && inputs.gpu_type || secrets.RUNPOD_GPU_TYPE }}
-        run: python scripts/launch_pod_sdk.py   # ← new script
+    - name: Launch RunPod batch
+      env:
+        RUNPOD_API_KEY : ${{ secrets.RUNPOD_API_KEY }}
+        PROMPT_GLOB    : ${{ inputs.prompt_glob }}
+        IMAGE_TAG      : ${{ inputs.image_tag }}
+        MIN_VRAM_GB    : ${{ inputs.min_vram }}
+        MAX_PRICE_PER_HR : ${{ inputs.max_price }}
+      run: python scripts/launch_pod_sdk.py
