@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Launch a RunPod COMMUNITY-cloud pod via REST v2 and stream status.
+Launch a RunPod COMMUNITY pod via REST v2 and stream status.
 
-Required env vars (set in render.yml):
-  RUNPOD_API_KEY   – bearer token (GitHub secret)
-  PROMPT_GLOB      – NDJSON glob (workflow input)
-  IMAGE_TAG        – ghcr tag (workflow input)
-  RUNPOD_GPU_TYPE  – e.g. 'NVIDIA GeForce RTX 4090' (secret or input)
+Required env vars:
+  RUNPOD_API_KEY   – bearer token
+  PROMPT_GLOB      – NDJSON glob
+  IMAGE_TAG        – GHCR tag
+  RUNPOD_GPU_TYPE  – e.g. 'NVIDIA GeForce RTX 4090'
 """
-import os, sys, glob, time, pathlib, requests
+import os, sys, glob, time, pathlib, requests, json
 
 API  = "https://rest.runpod.io/v2"
 HEAD = {
@@ -17,14 +17,14 @@ HEAD = {
     "Accept":        "application/json"
 }
 
-def quit(msg: str, code: int = 1):
+def quit(msg, code=1):
     print("[launcher]", msg, flush=True)
     sys.exit(code)
 
-# ─── gather all prompts ─────────────────────────────────────────
+# ─── gather prompts ─────────────────────────────────────────────
 prompts = []
-for path in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
-    prompts += pathlib.Path(path).read_text().splitlines()
+for p in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
+    prompts += pathlib.Path(p).read_text().splitlines()
 if not prompts:
     quit("No prompts match " + os.environ["PROMPT_GLOB"])
 
@@ -34,40 +34,38 @@ image = (f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
          f"/spec-render:{os.environ['IMAGE_TAG']}")
 gpu_type = os.environ["RUNPOD_GPU_TYPE"]
 
-# ─── launch the pod ────────────────────────────────────────────
+# ─── launch pod ─────────────────────────────────────────────────
 payload = {
     "name"      : "spec-render",
     "cloudType" : "COMMUNITY",
-    "gpuTypeId" : gpu_type,          # e.g. 'NVIDIA GeForce RTX 4090'
+    "gpuTypeId" : gpu_type,      # e.g. 'NVIDIA GeForce RTX 4090'
     "gpuCount"  : 1,
     "imageName" : image,
     "volumeInGb": 20,
-    "env":        env_block          # object, not list, in REST v2
+    "env"       : env_block      # object in REST v2
 }
+resp = requests.post(f"{API}/pods", headers=HEAD, json=payload)
 
-resp = requests.post(f"{API}/pods/launch", headers=HEAD, json=payload)
-
-if not resp.ok:                      # 4xx/5xx
-    quit(f"HTTP {resp.status_code} while launching pod:\n{resp.text[:2000]}")
+if not resp.ok:                             # 4xx / 5xx
+    quit(f"HTTP {resp.status_code}\n{resp.text[:2000]}")
 
 try:
-    pod_id = resp.json()["podId"]
+    pod_id = resp.json()["id"]              # REST v2 returns 'id'
 except Exception as e:
-    quit(f"Non-JSON reply when launching pod:\n{resp.text[:1000]}\n{e}")
+    quit("Non-JSON response:\n" + resp.text[:1000])
 
 print("[launcher] Pod ID", pod_id, flush=True)
 
-# ─── poll status until SUCCEEDED / FAILED ──────────────────────
+# ─── poll status until finished ─────────────────────────────────
 while True:
-    info = requests.get(f"{API}/pods/{pod_id}", headers=HEAD).json()
-    phase  = info["phase"]
-    runtime = info.get("runtime")
+    info  = requests.get(f"{API}/pods/{pod_id}", headers=HEAD).json()
+    phase = info["phase"]; runtime = info.get("runtime")
     print(f"[launcher] Phase {phase:<9} Runtime {runtime}", flush=True)
 
     if phase in ("SUCCEEDED", "FAILED"):
-        logs = requests.get(f"{API}/pods/{pod_id}/logs", headers=HEAD).text
+        logs = requests.get(f"{API}/pods/{pod_id}/logs",
+                            headers=HEAD).text
         print("--- tail of pod logs ---\n", logs[-4000:], flush=True)
-        quit("Pod finished",
-             0 if phase == "SUCCEEDED" else 1)
+        quit("Done", 0 if phase == "SUCCEEDED" else 1)
 
     time.sleep(20)
