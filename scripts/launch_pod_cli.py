@@ -43,21 +43,20 @@ def gq(query, variables=None, tries=5):
     raise RuntimeError(f"RunPod API still failing after {tries} retries")
 
 # ───────── payload builders ───────────────────────────────────────
-def start_pod(image, env_dict):
-    env_array = [{"key": k, "value": v} for k, v in env_dict.items()]
-    q = "mutation($in:PodInput!){ podLaunch(input:$in){ podId } }"
-    v = {"in": {
-        "name":        "spec-render",
-        "cloudType":   "COMMUNITY",
-        "gpuTypeId":   "NVIDIA_A6000",
-        "gpuCount":    1,
-        "imageName":   image,
-        "env":         env_array,
-        "volumeInGb":  20,
-        "containerDiskInGb": 20,
-        "dockerArgs":  ""
-    }}
-    return gq(q, v)["podLaunch"]["podId"]
+ def start_pod(image, env_dict):
+     env_array = [{"key": k, "value": v} for k, v in env_dict.items()]
+     q = "mutation($in:PodInput!){ podLaunch(input:$in){ podId } }"
+     v = {"in": {
+         "name":       "spec-render",
+         "cloudType":  "COMMUNITY",
+         "gpuTypeId":  "NVIDIA_A6000",
+         "gpuCount":   1,
+         "imageName":  image,
+         "env":        env_array,
+-        "containerDiskInGb": 20,   # ← delete this line
+         "volumeInGb": 20
+     }}
+     return gq(q, v)["podLaunch"]["podId"]
 
 def pod_status(pid):
     q = "query($id:ID!){ podDetails(podId:$id){ phase runtime exitCode } }"
