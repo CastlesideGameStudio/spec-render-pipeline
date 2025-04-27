@@ -7,8 +7,11 @@ on:
         description: NDJSON glob
         default: 'addendums/**/*.ndjson'
       image_tag:
-        description: Container tag (SHA or 'latest')
+        description: Container tag (SHA or "latest")
         default: 'latest'
+      gpu_type:
+        description: RunPod gpuTypeId (see “Create Pod ► API” panel)
+        default: 'NVIDIA_RTX4090'
 
 jobs:
   render:
@@ -27,4 +30,5 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
           PROMPT_GLOB:    ${{ inputs.prompt_glob }}
           IMAGE_TAG:      ${{ inputs.image_tag }}
+          RUNPOD_GPU_TYPE:${{ inputs.gpu_type }}
         run: python scripts/launch_pod_cli.py

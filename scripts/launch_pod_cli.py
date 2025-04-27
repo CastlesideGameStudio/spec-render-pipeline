@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """
-launch_pod_cli.py – launch a raw A6000 Community pod on RunPod,
-stream status, exit with the pod’s result.
+launch_pod_cli.py
+────────────────────────────────────────────────────────────────────
+ * Starts a RunPod Community-Cloud GPU pod with your GHCR image
+ * Streams phase updates until the pod finishes
+ * Exits 0 = SUCCEEDED, 1 = FAILED / timeout / API error
 
-Env vars injected by GitHub Actions:
-  RUNPOD_API_KEY  – repo secret
-  PROMPT_GLOB     – NDJSON glob from workflow_dispatch
-  IMAGE_TAG       – GHCR image tag from workflow_dispatch
+ENV VARS injected by GitHub Actions
+───────────────────────────────────
+RUNPOD_API_KEY   – required – repo secret
+PROMPT_GLOB      – required – NDJSON glob from workflow_dispatch
+IMAGE_TAG        – required – ghcr.io tag from workflow_dispatch
+RUNPOD_GPU_TYPE  – optional – gpuTypeId string, default NVIDIA_RTX4090
 """
 import os, sys, glob, time, json, random, pathlib, requests
 
+# ───────── configurable constants ─────────
 API             = "https://api.runpod.io/graphql"
-GPU_TYPE_ID     = "NVIDIA_A6000"          # Community Cloud
-MAX_RUNTIME_MIN = 60                      # hard fail-safe in minutes
+GPU_TYPE_ID     = os.environ.get("RUNPOD_GPU_TYPE", "NVIDIA_RTX4090")
+MAX_RUNTIME_MIN = 60                                  # fail-safe
 
 def log(msg: str) -> None:
     print("[launcher]", msg, flush=True)
 
-# ─────────────────── GraphQL helper ────────────────────
+# ───────── GraphQL helper ─────────
 def gq(query: str, variables=None, tries: int = 5):
-    """POST to RunPod GraphQL with retry + verbose error echo."""
     payload = {"query": query, "variables": variables or {}}
     headers = {"Authorization": os.environ["RUNPOD_API_KEY"]}
 
@@ -32,74 +37,69 @@ def gq(query: str, variables=None, tries: int = 5):
             time.sleep(wait)
             continue
 
-        if not r.ok:
+        if not r.ok:                                      # 4xx
             log(f"HTTP {r.status_code} response:\n{r.text[:1000]}")
             r.raise_for_status()
 
         data = r.json()
         if data.get("errors"):
             log("API errors:\n" + json.dumps(data["errors"], indent=2))
-            raise RuntimeError("RunPod GraphQL returned errors")
+            raise RuntimeError("RunPod GraphQL errors")
 
         return data["data"]
 
-    raise RuntimeError(f"RunPod API still failing after {tries} retries")
+    raise RuntimeError("RunPod API still failing after retries")
 
-# ─────────────────── payload builders ──────────────────
+# ───────── payload builders ─────────
 def start_pod(image: str, env_dict: dict) -> str:
-    """Return podId."""
     env_array = [{"key": k, "value": v} for k, v in env_dict.items()]
-    q = "mutation($in: PodInput!) { podLaunch(input: $in) { podId } }"
-    v = {
-        "in": {
-            "name":       "spec-render",
-            "cloudType":  "COMMUNITY",
-            "gpuTypeId":  GPU_TYPE_ID,
-            "gpuCount":   1,
-            "imageName":  image,
-            "env":        env_array,
-            "volumeInGb": 20
-        }
+    pod_input = {
+        "name":       "spec-render",
+        "cloudType":  "COMMUNITY",
+        "gpuTypeId":  GPU_TYPE_ID,
+        "gpuCount":   1,
+        "imageName":  image,
+        "env":        env_array,
+        "volumeInGb": 20
     }
-    return gq(q, v)["podLaunch"]["podId"]
+    q = "mutation($in: PodInput!){ podLaunch(input:$in){ podId } }"
+    return gq(q, {"in": pod_input})["podLaunch"]["podId"]
 
 def pod_status(pid: str) -> dict:
-    q = "query($id: ID!) { podDetails(podId: $id) { phase runtime exitCode } }"
+    q = "query($id:ID!){ podDetails(podId:$id){ phase runtime exitCode } }"
     return gq(q, {"id": pid})["podDetails"]
 
 def pod_logs(pid: str) -> str:
-    q = "query($id: ID!) { podLogs(podId: $id) }"
+    q = "query($id:ID!){ podLogs(podId:$id) }"
     return gq(q, {"id": pid})["podLogs"]
 
-# ───────────────────── main ────────────────────────────
+# ───────── gather prompts & launch ─────────
 prompts: list[str] = []
-for path in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
-    prompts += pathlib.Path(path).read_text().splitlines()
+for p in glob.glob(os.environ["PROMPT_GLOB"], recursive=True):
+    prompts += pathlib.Path(p).read_text().splitlines()
 
 if not prompts:
-    sys.exit(f"No prompts match glob: {os.environ['PROMPT_GLOB']}")
+    sys.exit("No prompts match " + os.environ["PROMPT_GLOB"])
 
 env_block = {"PROMPTS_NDJSON": "\n".join(prompts)[:48000]}
-image_ref  = (
+image_ref = (
     f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}"
     f"/spec-render:{os.environ['IMAGE_TAG']}"
 )
 
+log(f"GPU type  {GPU_TYPE_ID}")
 log(f"Launching pod with image {image_ref}")
 pod_id = start_pod(image_ref, env_block)
 log(f"Pod ID {pod_id}")
 
 start = time.time()
 while True:
-    info   = pod_status(pod_id)
-    phase  = info["phase"]
-    runsec = info.get("runtime")
-    log(f"Phase {phase:<9}  Runtime {runsec}")
-
-    if phase in ("SUCCEEDED", "FAILED"):
+    info = pod_status(pod_id)
+    log(f"Phase {info['phase']:<9}  Runtime {info.get('runtime')}")
+    if info["phase"] in ("SUCCEEDED", "FAILED"):
         log("--- tail of pod logs ---")
-        log(pod_logs(pod_id)[-4000:])          # last ~4 KB
-        sys.exit(0 if phase == "SUCCEEDED" else 1)
+        log(pod_logs(pod_id)[-4000:])
+        sys.exit(0 if info["phase"] == "SUCCEEDED" else 1)
 
     if time.time() - start > MAX_RUNTIME_MIN * 60:
         log(f"Timeout > {MAX_RUNTIME_MIN} min – failing job")
