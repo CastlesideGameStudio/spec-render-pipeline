@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
-
 import os
 import requests
+import sys
 
-RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", "")
-API_URL        = "https://api.runpod.io/graphql"
-
-def gq(query, variables=None):
-    r = requests.post(
-        API_URL,
-        json={"query": query, "variables": variables or {}},
-        headers={"Authorization": RUNPOD_API_KEY},
-        timeout=20
-    )
-    r.raise_for_status()
-    j = r.json()
-    if "errors" in j:
-        raise RuntimeError(j["errors"])
-    return j["data"]
+API_URL = "https://rest.runpod.io/account"
 
 def main():
-    query = """query { me { id email accountBalance } }"""
-    data  = gq(query)
-    me    = data["me"]
-    print("RunPod user ID:     ", me["id"])
-    print("RunPod user email:  ", me["email"])
-    print("RunPod balance:     ", me["accountBalance"])
+    runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
+    if not runpod_api_key:
+        sys.exit("[ERROR] RUNPOD_API_KEY is missing or empty.")
+
+    headers = {
+        "Authorization": f"Bearer {runpod_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    resp = requests.get(API_URL, headers=headers, timeout=20)
+    if not resp.ok:
+        print("[ERROR] GET /account failed.")
+        print("Status:", resp.status_code)
+        print("Response:", resp.text)
+        resp.raise_for_status()
+
+    data = resp.json()  # should contain fields like 'accountType', 'balance', 'email'
+    print("[INFO] RunPod Account Info:")
+    print("  Email:", data.get("email"))
+    print("  Balance:", data.get("balance"))
+    print("  Account Type:", data.get("accountType"))
+    # Add or remove prints as needed
 
 if __name__ == "__main__":
-    if not RUNPOD_API_KEY:
-        print("[!] Missing RUNPOD_API_KEY in env.")
-    else:
-        main()
+    main()

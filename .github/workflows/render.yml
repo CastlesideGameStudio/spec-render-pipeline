@@ -10,7 +10,7 @@ on:
         description: Container tag (SHA or "latest")
         default: 'latest'
       gpu_type:
-        description: "For On-Demand, examples include 'NVIDIA A40', 'NVIDIA GeForce RTX 3090', etc."
+        description: "For On-Demand. Examples: 'NVIDIA A40', 'NVIDIA GeForce RTX 3090', etc."
         default: 'NVIDIA A40'
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
       - name: Install Python deps
         run: pip install requests
 
-      # 1) Print your current RunPod balance in the log
+      # 1) Print your current RunPod account info & balance via REST
       - name: Print RunPod balance
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}

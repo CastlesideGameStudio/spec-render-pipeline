@@ -1,123 +1,119 @@
 #!/usr/bin/env python3
 """
-launch_pod_on_demand.py – spins up one On-Demand pod on RunPod,
-using a single GPU type. Expects env:
-  RUNPOD_API_KEY (required)
-  PROMPT_GLOB    (default 'addendums/**/*.ndjson')
-  IMAGE_TAG      (default 'latest')
-  GPU_TYPE       (default 'NVIDIA A40') – must match a GPU in 'runpod.get_gpus()'
+launch_pod_on_demand.py – spins up one On-Demand pod on RunPod via the REST API.
+Expects env:
+  RUNPOD_API_KEY  – your "Bearer" token
+  PROMPT_GLOB     – NDJSON pattern (default "addendums/**/*.ndjson")
+  IMAGE_TAG       – container tag (default "latest")
+  GPU_TYPE        – e.g. "NVIDIA A40", "NVIDIA RTX A5000", etc.
 """
-import os, sys, glob, time, pathlib, requests
+import os
+import sys
+import glob
+import time
+import pathlib
+import requests
 
-API_URL = "https://api.runpod.ai/graphql"
-RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY", "")
+BASE_URL   = "https://rest.runpod.io"
+API_PODS   = f"{BASE_URL}/pod"      # for POST and GET
+API_LOGS   = f"{BASE_URL}/pod/logs" # for GET logs
 
-if not RUNPOD_API_KEY:
-    sys.exit("[ERROR] RUNPOD_API_KEY not set.")
+def main():
+    runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
+    if not runpod_api_key:
+        sys.exit("[ERROR] RUNPOD_API_KEY missing or empty.")
 
-PROMPT_GLOB = os.environ.get("PROMPT_GLOB", "addendums/**/*.ndjson")
-IMAGE_TAG   = os.environ.get("IMAGE_TAG", "latest")
-GPU_TYPE    = os.environ.get("GPU_TYPE", "NVIDIA A40")
+    prompt_glob = os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")
+    image_tag   = os.getenv("IMAGE_TAG", "latest")
+    gpu_type    = os.getenv("GPU_TYPE", "NVIDIA A40")
 
-# This is your GHCR image, for example:
-#   ghcr.io/owner/repo/spec-render:latest
-REPO_SLUG    = os.environ["GITHUB_REPOSITORY"].lower()  # e.g. "myorg/myrepo"
-IMAGE_NAME   = f"ghcr.io/{REPO_SLUG}/spec-render:{IMAGE_TAG}"
+    # 1) Gather NDJSON lines
+    all_lines = []
+    for path in glob.glob(prompt_glob, recursive=True):
+        txt = pathlib.Path(path).read_text(encoding="utf-8").splitlines()
+        # skip blank lines
+        lines = [ln for ln in txt if ln.strip()]
+        all_lines.extend(lines)
 
-def gq(query, variables=None):
-    resp = requests.post(
-        API_URL,
-        json={"query": query, "variables": variables or {}},
-        headers={"Authorization": RUNPOD_API_KEY},
-        timeout=25
-    )
-    resp.raise_for_status()
-    j = resp.json()
-    if "errors" in j:
-        raise RuntimeError(j["errors"])
-    return j["data"]
+    if not all_lines:
+        sys.exit(f"[ERROR] No prompts found matching {prompt_glob}.")
 
-def start_pod(image_name, env, gpu_type_id):
-    query = """mutation($input: PodInput!) {
-      podLaunch(input: $input) {
-        podId
-      }
-    }"""
-    pod_input = {
-        "name": "spec-render-on-demand",
-        "cloudType": "SECURE",        # <= On-Demand
-        "gpuTypeId": gpu_type_id,     # e.g. "NVIDIA A40"
-        "gpuCount": 1,
-        "volumeInGb": 20,
-        "containerDiskInGb": 20,
-        "imageName": image_name,
-        "env": env,
+    print(f"[INFO] Found {len(all_lines)} total lines from '{prompt_glob}'")
+
+    # Combine lines into a single environment variable
+    env_block = {"PROMPTS_NDJSON": "\n".join(all_lines)}
+
+    # Build the container reference
+    # e.g. "ghcr.io/owner/repo/spec-render:latest"
+    repo_slug  = os.getenv("GITHUB_REPOSITORY", "yourorg/yourrepo").lower()
+    image_name = f"ghcr.io/{repo_slug}/spec-render:{image_tag}"
+
+    headers = {
+        "Authorization": f"Bearer {runpod_api_key}",
+        "Content-Type":  "application/json",
     }
-    variables = {"input": pod_input}
-    data = gq(query, variables)
-    return data["podLaunch"]["podId"]
 
-def get_pod_status(pod_id):
-    query = """query($podId: ID!) {
-      podDetails(podId: $podId) {
-        name
-        phase
-        runtime
-        exitCode
-      }
-    }"""
-    data = gq(query, {"podId": pod_id})
-    return data["podDetails"]
+    # 2) Create the pod
+    payload = {
+        "name":         "spec-render-on-demand",
+        "cloud_type":   "SECURE",         # On-Demand
+        "gpuTypeId":    gpu_type,
+        "gpuCount":     1,
+        "volumeInGb":   20,
+        "containerDiskInGb": 20,
+        "imageName":    image_name,
+        "env":          env_block
+    }
 
-def get_pod_logs(pod_id):
-    query = """query($podId: ID!){
-      podLogs(podId: $podId)
-    }"""
-    data = gq(query, {"podId": pod_id})
-    return data["podLogs"]
+    print(f"[INFO] Creating Pod with GPU='{gpu_type}' image='{image_name}'")
+    r = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
+    if not r.ok:
+        print("[ERROR] Pod creation failed.")
+        print("Status:", r.status_code)
+        print("Response:", r.text)
+        sys.exit(1)
 
-# ─────────────────────────────────────────────────────────────
-# 1) Gather all lines from NDJSON
-all_prompts = []
-for path in glob.glob(PROMPT_GLOB, recursive=True):
-    txt = pathlib.Path(path).read_text(encoding="utf-8").splitlines()
-    # skip blank lines
-    lines = [ln for ln in txt if ln.strip()]
-    all_prompts.extend(lines)
+    pod_data = r.json()  # Should return e.g. {"id": "...", "name": "...", ...}
+    pod_id   = pod_data.get("id")
+    if not pod_id:
+        sys.exit("[ERROR] No pod ID returned in response.")
 
-if not all_prompts:
-    sys.exit(f"[ERROR] No prompts found under '{PROMPT_GLOB}'.")
+    print(f"[INFO] Pod created with ID={pod_id}")
 
-print(f"[INFO] Found {len(all_prompts)} total prompt lines matching '{PROMPT_GLOB}'")
+    # 3) Poll until not "Running"
+    while True:
+        time.sleep(20)
+        r_stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
+        if not r_stat.ok:
+            print("[WARN] GET /pod/<id> failed, ignoring temporarily")
+            continue
+        status_data = r_stat.json()  # Should have e.g. {"id":..., "status":"Running", ...}
+        status = status_data.get("status")
+        print(f"[INFO] Pod status={status}")
 
-# Merge them into a single environment variable. 
-#   If extremely large, you might exceed the ~48-64KB limit. 
-#   For now, just do a naive join.
-env_block = {"PROMPTS_NDJSON": "\n".join(all_prompts)}
+        if status not in ("Pending", "Running"):
+            print("[INFO] Pod is no longer Running. Breaking out of loop.")
+            break
 
-# ─────────────────────────────────────────────────────────────
-# 2) Start the Pod
-pod_id = None
-try:
-    print(f"[INFO] Attempting to launch On-Demand pod with GPU='{GPU_TYPE}'")
-    pod_id = start_pod(IMAGE_NAME, env_block, GPU_TYPE)
-    print("[INFO] Pod ID =", pod_id)
-except Exception as e:
-    print("[ERROR] Pod launch failed:", e)
-    sys.exit(1)
+    # Optional: retrieve logs
+    # GET /pod/<podId>/logs
+    r_logs = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
+    if r_logs.ok:
+        logs_txt = r_logs.text
+        print("------ Pod logs ------")
+        print(logs_txt[-3000:])  # print last 3000 chars, if large
+    else:
+        print("[WARN] Could not fetch logs. Status =", r_logs.status_code)
 
-# ─────────────────────────────────────────────────────────────
-# 3) Poll until done
-while True:
-    time.sleep(20)
-    info = get_pod_status(pod_id)
-    print(f"[INFO] Pod phase={info['phase']} runtime={info.get('runtime')} sec")
+    # If you also want to stop or delete the Pod, you can call:
+    #   DELETE /pod/<podId>
+    #   or POST /pod/stop
+    #
+    # But if your container is ephemeral and it has already exited,
+    # the Pod might shut down automatically on On-Demand.
 
-    if info["phase"] in ["SUCCEEDED", "FAILED"]:
-        print("[INFO] Pod completed with exitCode=", info.get("exitCode"))
-        logs = get_pod_logs(pod_id)
-        print("---- Tail of logs ----\n" + logs[-2000:])
-        if info["phase"] == "FAILED":
-            sys.exit(1)
-        else:
-            sys.exit(0)
+    # Exit code 0 if we got here
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
