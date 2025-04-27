@@ -4,30 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       prompt_glob:
-        description: NDJSON glob to upload
+        description: NDJSON glob
         default: 'addendums/**/*.ndjson'
       image_tag:
-        description: Container tag to run
+        description: Container tag (SHA or 'latest')
         default: 'latest'
 
 jobs:
   render:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Check out the repo (needed if your launch script lives here)
       - uses: actions/checkout@v4
 
-      # 2. Stub launcher – replace the echo with your real script when ready
-      - name: Launch RunPod stub
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Launch RunPod batch
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-          PROMPT_GLOB:   ${{ inputs.prompt_glob }}
-          IMAGE_TAG:     ${{ inputs.image_tag }}
-        run: |
-          echo "Would launch RunPod here with:"
-          echo "  API key      : ${RUNPOD_API_KEY:0:4}******"
-          echo "  Prompt glob  : $PROMPT_GLOB"
-          echo "  Image tag    : $IMAGE_TAG"
-          # real command later:
-          # python scripts/launch_pod_cli.py "$PROMPT_GLOB" "$IMAGE_TAG"
+          PROMPT_GLOB:    ${{ inputs.prompt_glob }}
+          IMAGE_TAG:      ${{ inputs.image_tag }}
+        run: python scripts/launch_pod_cli.py
