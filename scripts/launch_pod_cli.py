@@ -53,15 +53,18 @@ def gq(query: str, variables=None, tries: int = 5):
 # ───────── payload builders ─────────
 def start_pod(image: str, env_dict: dict) -> str:
     env_array = [{"key": k, "value": v} for k, v in env_dict.items()]
+
     pod_input = {
         "name":       "spec-render",
         "cloudType":  "COMMUNITY",
         "gpuTypeId":  GPU_TYPE_ID,
         "gpuCount":   1,
         "imageName":  image,
-        "env":        env_array,
-        "volumeInGb": 20
+        "volumeInGb": 20,
+        "dockerArgs": "",          # ← NEW ( must exist, even if empty )
+        "env":        env_array
     }
+
     q = "mutation($in: PodInput!){ podLaunch(input:$in){ podId } }"
     return gq(q, {"in": pod_input})["podLaunch"]["podId"]
 
