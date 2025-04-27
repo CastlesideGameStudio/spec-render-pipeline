@@ -1,4 +1,5 @@
 name: Launch Render Batch
+
 on:
   workflow_dispatch:
     inputs:
@@ -9,13 +10,12 @@ on:
         description: Container tag (SHA or "latest")
         default: 'latest'
       gpu_type:
-        description: RunPod gpuTypeId (see “Create Pod ? API”)
+        description: RunPod gpuTypeId (see "Create Pod -> API")
         default: 'NVIDIA_RTX4090'
 
 jobs:
   render:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
