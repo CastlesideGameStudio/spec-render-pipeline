@@ -1,0 +1,35 @@
+name: Launch Render Batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_glob:
+        description: NDJSON glob to include
+        default: addendums/**/*.ndjson
+      image_tag:
+        description: Container tag (SHA or "latest")
+        default: latest
+      gpu_type:
+        description: RunPod gpuTypeId
+        default: NVIDIA_RTX4090
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Launch RunPod batch
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          PROMPT_GLOB:    ${{ inputs.prompt_glob }}
+          IMAGE_TAG:      ${{ inputs.image_tag }}
+          RUNPOD_GPU_TYPE:${{ inputs.gpu_type }}
+        run: python scripts/launch_pod_cli.py
