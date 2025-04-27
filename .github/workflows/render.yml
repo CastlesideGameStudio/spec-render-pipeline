@@ -11,7 +11,7 @@ on:
         default: 'latest'
       gpu_type:
         description: RunPod gpuTypeId
-        default: 'NVIDIA_RTX4090'
+        default: 'NVIDIA GeForce RTX 4090'
 
 jobs:
   render:

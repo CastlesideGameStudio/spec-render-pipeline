@@ -17,7 +17,7 @@ import os, sys, glob, time, json, random, pathlib, requests
 
 # ───────── configurable constants ─────────
 API             = "https://api.runpod.io/graphql"
-GPU_TYPE_ID     = os.environ.get("RUNPOD_GPU_TYPE", "NVIDIA_RTX4090")
+GPU_TYPE_ID = os.environ.get("RUNPOD_GPU_TYPE", "NVIDIA GeForce RTX 4090")
 MAX_RUNTIME_MIN = 60                                  # fail-safe
 
 def log(msg: str) -> None:
