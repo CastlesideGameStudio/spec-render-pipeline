@@ -1,14 +1,33 @@
 name: Launch Render Batch
+
 on:
   workflow_dispatch:
     inputs:
-      prompt_glob: { description: NDJSON glob, default: 'addendums/**/*.ndjson' }
-      image_tag:   { description: Container tag,  default: 'latest' }
+      prompt_glob:
+        description: NDJSON glob to upload
+        default: 'addendums/**/*.ndjson'
+      image_tag:
+        description: Container tag to run
+        default: 'latest'
+
 jobs:
   render:
     runs-on: ubuntu-latest
+
     steps:
+      # 1. Check out the repo (needed if your launch script lives here)
       - uses: actions/checkout@v4
-      - env:
+
+      # 2. Stub launcher – replace the echo with your real script when ready
+      - name: Launch RunPod stub
+        env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-      - run: echo "stub – replace with scripts/launch_pod_cli.py later"
+          PROMPT_GLOB:   ${{ inputs.prompt_glob }}
+          IMAGE_TAG:     ${{ inputs.image_tag }}
+        run: |
+          echo "Would launch RunPod here with:"
+          echo "  API key      : ${RUNPOD_API_KEY:0:4}******"
+          echo "  Prompt glob  : $PROMPT_GLOB"
+          echo "  Image tag    : $IMAGE_TAG"
+          # real command later:
+          # python scripts/launch_pod_cli.py "$PROMPT_GLOB" "$IMAGE_TAG"
