@@ -25,7 +25,8 @@ import os, sys, glob, time, json, pathlib, traceback, runpod
 runpod.api_key  = os.environ["RUNPOD_API_KEY"]
 MIN_VRAM_GB     = int(os.getenv("MIN_VRAM_GB", 24))
 MIN_GPU_COUNT   = int(os.getenv("MIN_GPU_COUNT", 1))
-MAX_PRICE       = float(os.getenv("MAX_PRICE_PER_HR",  ""))
+# ----- price ceiling  -------------------------------------------------
+MAX_PRICE = float(os.getenv("MAX_PRICE_PER_HR", "15"))      # default $15/hr
 
 def log(msg: str) -> None: print("[launcher]", msg, flush=True)
 
