@@ -4,34 +4,33 @@ on:
   workflow_dispatch:
     inputs:
       prompt_glob:
-        description: NDJSON glob
+        description: NDJSON files to include in this batch
         default: 'addendums/**/*.ndjson'
       image_tag:
-        description: Container tag (SHA or 'latest')
+        description: Container tag (SHA or "latest")
         default: 'latest'
       min_vram:
-        description: "Minimum VRAM (GB) required"
+        description: "Minimum GPU vRAM in GB (default 24)"
         default: '24'
-      max_price:
-        description: "Max $/hr (blank = no limit)"
-        default: ''
 
 jobs:
   render:
     runs-on: ubuntu-latest
+
     steps:
     - uses: actions/checkout@v4
+
     - uses: actions/setup-python@v5
-      with: { python-version: '3.11' }
+      with:
+        python-version: '3.11'
 
     - name: Install RunPod SDK
       run: pip install --upgrade runpod
 
     - name: Launch RunPod batch
       env:
-        RUNPOD_API_KEY : ${{ secrets.RUNPOD_API_KEY }}
-        PROMPT_GLOB    : ${{ inputs.prompt_glob }}
-        IMAGE_TAG      : ${{ inputs.image_tag }}
-        MIN_VRAM_GB    : ${{ inputs.min_vram }}
-        MAX_PRICE_PER_HR : ${{ inputs.max_price }}
+        RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        PROMPT_GLOB   : ${{ inputs.prompt_glob }}
+        IMAGE_TAG     : ${{ inputs.image_tag }}
+        MIN_VRAM_GB   : ${{ inputs.min_vram }}
       run: python scripts/launch_pod_sdk.py
