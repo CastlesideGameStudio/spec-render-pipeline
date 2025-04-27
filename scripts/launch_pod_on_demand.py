@@ -15,8 +15,8 @@ import pathlib
 import requests
 
 BASE_URL = "https://rest.runpod.io/v1"
-API_PODS = f"{BASE_URL}/pods"      # note the plural "/pods" from docs
-API_LOGS = f"{BASE_URL}/pods/logs"
+API_PODS = f"{BASE_URL}/pods"      # POST or GET for Pod creation/listing
+API_LOGS = f"{BASE_URL}/pods/logs" # GET logs
 
 def main():
     runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
@@ -43,8 +43,7 @@ def main():
     # Combine lines into a single environment variable
     env_block = {"PROMPTS_NDJSON": "\n".join(all_lines)}
 
-    # Build the container reference
-    # e.g. "ghcr.io/owner/repo/spec-render:latest"
+    # Build the container reference (example: "ghcr.io/owner/repo/spec-render:latest")
     repo_slug  = os.getenv("GITHUB_REPOSITORY", "yourorg/yourrepo").lower()
     image_name = f"ghcr.io/{repo_slug}/spec-render:{image_tag}"
 
@@ -54,10 +53,11 @@ def main():
     }
 
     # 2) Create the pod
+    # MUST match the v1 schema: "cloudType" (camelCase) and "gpuTypeIds" (array).
     payload = {
         "name":         "spec-render-on-demand",
-        "cloud_type":   "SECURE",      # On-Demand
-        "gpuTypeId":    gpu_type,
+        "cloudType":    "SECURE",                # On-Demand
+        "gpuTypeIds":   [gpu_type],             # Must be an array of strings
         "gpuCount":     1,
         "volumeInGb":   20,
         "containerDiskInGb": 20,
@@ -73,10 +73,10 @@ def main():
         print("Response:", r.text)
         sys.exit(1)
 
-    pod_data = r.json()  # Should return e.g. {"id": "...", "name": "...", ...}
+    pod_data = r.json()  # ex: {"id": "...", "name": "...", "status": "Pending", ...}
     pod_id   = pod_data.get("id")
     if not pod_id:
-        sys.exit("[ERROR] No pod ID returned in response.")
+        sys.exit("[ERROR] No pod ID returned in the response.")
 
     print(f"[INFO] Pod created with ID={pod_id}")
 
@@ -85,9 +85,10 @@ def main():
         time.sleep(20)
         r_stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
         if not r_stat.ok:
-            print("[WARN] GET /pods/<id> failed, ignoring temporarily")
+            print("[WARN] GET /pods/{podId} failed, ignoring temporarily")
             continue
-        status_data = r_stat.json()  # e.g. {"id":"...", "status":"Running", ...}
+
+        status_data = r_stat.json()  # e.g. {"id": "...", "status": "Running", ...}
         status = status_data.get("status")
         print(f"[INFO] Pod status={status}")
 
@@ -95,15 +96,14 @@ def main():
             print("[INFO] Pod is no longer Running. Breaking out of loop.")
             break
 
-    # Optional: retrieve logs
-    # GET /pods/{podId}/logs
-    r_logs = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
-    if r_logs.ok:
-        logs_txt = r_logs.text
+    # 4) (Optional) Retrieve Pod logs
+    logs_resp = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
+    if logs_resp.ok:
+        logs_txt = logs_resp.text
         print("------ Pod logs ------")
         print(logs_txt[-3000:])  # print last 3000 chars if large
     else:
-        print("[WARN] Could not fetch logs. Status =", r_logs.status_code)
+        print("[WARN] Could not fetch logs. Status =", logs_resp.status_code)
 
     sys.exit(0)
 
