@@ -1,11 +1,9 @@
-name: Build & Push Container
+name: Build and Push Container
 
-# ────────────────────────────── triggers ──────────────────────────────
 on:
-  # manual button in the Actions tab
-  workflow_dispatch:          
-
-  # auto-run when these paths change
+  # Manual button in Actions tab
+  workflow_dispatch:
+  # Auto-run when these files change
   push:
     paths:
       - 'Dockerfile'
@@ -13,24 +11,22 @@ on:
       - 'specs/**'
       - '.github/workflows/build.yml'
 
-# ────────────────────────────── job ───────────────────────────────────
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read       # allows us to read repo content
-      packages: write      # needed to push to GHCR
+      contents: read     # needed to read repo
+      packages: write    # needed to push to GHCR
 
     steps:
-      # 1. Check out repo
+      # 1) Check out repo
       - uses: actions/checkout@v4
 
-      # 2. Derive lowercase repo (Docker/OCI tags must be lowercase)
+      # 2) Derive lowercase repo name
       - name: Derive lowercase repo
-        run: |
-          echo "LC_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        run: echo "LC_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
-      # 3. Set up Buildx and log in to GHCR
+      # 3) Set up Docker Buildx and log in to GHCR
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -38,14 +34,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # 4. Build & push container (both :<sha> and :latest tags)
-      - name: Build and push
-        run: |
-          # Build and push with commit SHA tag
-          docker build -t ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} .
-          docker push ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }}
+      # 4) Build image with commit SHA
+      - name: Build image (SHA)
+        run: 'docker build -t ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} .'
 
-          # Also tag & push as :latest
-          docker tag ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} \
-                     ghcr.io/${{ env.LC_REPO }}/spec-render:latest
-          docker push ghcr.io/${{ env.LC_REPO }}/spec-render:latest
+      # 5) Push image with commit SHA
+      - name: Push image (SHA)
+        run: 'docker push ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }}'
+
+      # 6) Retag image as "latest"
+      - name: Tag image (latest)
+        run: 'docker tag ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} ghcr.io/${{ env.LC_REPO }}/spec-render:latest'
+
+      # 7) Push image with "latest" tag
+      - name: Push image (latest)
+        run: 'docker push ghcr.io/${{ env.LC_REPO }}/spec-render:latest'
