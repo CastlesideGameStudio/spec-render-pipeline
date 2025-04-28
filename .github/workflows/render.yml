@@ -6,11 +6,11 @@ on:
       prompt_glob:
         description: NDJSON files to include in this batch
         default: 'addendums/**/*.ndjson'
-      image_tag:
-        description: Container tag (SHA or "latest")
-        default: 'latest'
+      image_digest:
+        description: Container digest (sha256:…)
+        required: true
       gpu_type:
-        description: "For On-Demand. Examples: 'NVIDIA A40', 'NVIDIA GeForce RTX 3090', etc."
+        description: "GPU type, e.g. 'NVIDIA A40'"
         default: 'NVIDIA A40'
 
 jobs:
@@ -18,28 +18,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python deps
-        run: pip install requests
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install requests
 
       - name: Launch On-Demand Pod
         env:
-          # Required for spinning up the Pod
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
 
-          # If your container itself uploads to S3:
+          # S3 creds (forwarded to the container, if needed)
           AWS_ACCESS_KEY_ID:      ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY:  ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION:     ${{ secrets.AWS_DEFAULT_REGION }}
 
           PROMPT_GLOB: ${{ inputs.prompt_glob }}
-          IMAGE_TAG:   ${{ inputs.image_tag }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
           GPU_TYPE:    ${{ inputs.gpu_type }}
         run: python scripts/launch_pod_on_demand.py

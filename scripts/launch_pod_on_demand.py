@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 """
-launch_pod_on_demand.py – spins up one On-Demand pod on RunPod via the REST API.
+launch_pod_on_demand.py – spin up one On-Demand RunPod instance.
 
-Environment variables (from GitHub Actions or local shell)
-
-  # --- required --------------------------------------------------------------
-  RUNPOD_API_KEY          – your “Bearer …” token from https://runpod.io
-  # --- optional / have defaults ---------------------------------------------
-  PROMPT_GLOB             – NDJSON pattern         (default: addendums/**/*.ndjson)
-  IMAGE_TAG               – container tag          (default: latest)
-  IMAGE_DIGEST            – full image digest      (overrides IMAGE_TAG if set)
-  GPU_TYPE                – e.g. “NVIDIA A40”      (default: NVIDIA A40)
-  CONTAINER_AUTH_ID       – RunPod registry-auth ID (if image is private)
-  # S3 credentials (only forwarded to the container)
-  AWS_ACCESS_KEY_ID
-  AWS_SECRET_ACCESS_KEY
-  AWS_DEFAULT_REGION      – (default: us-east-1)
+Required env vars
+  RUNPOD_API_KEY   – your bearer token from https://runpod.io
+  IMAGE_DIGEST     – sha256:… of the container image to run
+Optional
+  PROMPT_GLOB      – NDJSON pattern (default: addendums/**/*.ndjson)
+  GPU_TYPE         – e.g. “NVIDIA A40” (default)
+  CONTAINER_AUTH_ID– RunPod registry-auth ID for private images
+  AWS_*            – forwarded unchanged to the container
 """
 
 import glob
@@ -25,109 +19,83 @@ import sys
 import time
 import requests
 
-BASE_URL   = "https://rest.runpod.io/v1"
-API_PODS   = f"{BASE_URL}/pods"
-API_LOGS   = f"{BASE_URL}/pods/logs"
+BASE_URL = "https://rest.runpod.io/v1"
+API_PODS = f"{BASE_URL}/pods"
 
+# ---------------------------------------------------------------------------
 
-def build_image_ref() -> str:
-    """
-    Build the GHCR reference.  The image lives exactly at
-    ghcr.io/<owner>/<repo>:<tag>  (or @<digest> if IMAGE_DIGEST is set).
-    """
-    repo_slug   = os.getenv("GITHUB_REPOSITORY", "").lower()     # owner/repo
-    digest      = os.getenv("IMAGE_DIGEST")                      # sha256:…
-    image_tag   = os.getenv("IMAGE_TAG", "latest")
+def image_ref() -> str:
+    repo_slug = os.getenv("GITHUB_REPOSITORY", "").lower()
+    digest    = os.getenv("IMAGE_DIGEST")
+    if not digest:
+        sys.exit("[ERROR] IMAGE_DIGEST is mandatory.")
+    return f"ghcr.io/{repo_slug}@{digest}"
 
-    if digest:                                                   # immutable pin
-        return f"ghcr.io/{repo_slug}@{digest}"
-    else:
-        return f"ghcr.io/{repo_slug}:{image_tag}"
-
+# ---------------------------------------------------------------------------
 
 def main() -> None:
-
-    # ------------------------------------------------------------------ config
-    runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
-    if not runpod_api_key:
-        sys.exit("[ERROR] RUNPOD_API_KEY missing or empty.")
+    key = os.getenv("RUNPOD_API_KEY")
+    if not key:
+        sys.exit("[ERROR] RUNPOD_API_KEY missing.")
 
     prompt_glob = os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")
     gpu_type    = os.getenv("GPU_TYPE", "NVIDIA A40")
-    image_name  = build_image_ref()
-    auth_id     = os.getenv("CONTAINER_AUTH_ID")  # optional
+    auth_id     = os.getenv("CONTAINER_AUTH_ID")  # may be empty
+    img         = image_ref()
 
-    # ---------------------------------------------------------------- prompts
-    all_lines: list[str] = []
+    # gather prompts ---------------------------------------------------------
+    lines: list[str] = []
     for path in glob.glob(prompt_glob, recursive=True):
-        lines = [
-            ln for ln in pathlib.Path(path).read_text(encoding="utf-8").splitlines()
-            if ln.strip()
-        ]
-        all_lines.extend(lines)
-
-    if not all_lines:
-        sys.exit(f"[ERROR] No prompts found matching '{prompt_glob}'.")
-
-    print(f"[INFO] Found {len(all_lines)} total prompt lines")
-
+        lines += [l for l in pathlib.Path(path).read_text().splitlines() if l.strip()]
+    if not lines:
+        sys.exit(f"[ERROR] No prompts matched '{prompt_glob}'.")
     env_block = {
-        "PROMPTS_NDJSON": "\n".join(all_lines),
+        "PROMPTS_NDJSON": "\n".join(lines),
         "AWS_ACCESS_KEY_ID":     os.getenv("AWS_ACCESS_KEY_ID", ""),
         "AWS_SECRET_ACCESS_KEY": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
         "AWS_DEFAULT_REGION":    os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
     }
 
-    # ----------------------------------------------------------------- create pod
-    headers = {
-        "Authorization": f"Bearer {runpod_api_key}",
-        "Content-Type":  "application/json",
-    }
-
-    payload: dict = {
+    # create pod -------------------------------------------------------------
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    payload = {
         "name":              "spec-render-on-demand",
-        "cloudType":         "SECURE",     # on-demand
+        "cloudType":         "SECURE",
         "gpuTypeIds":        [gpu_type],
         "gpuCount":          1,
         "volumeInGb":        20,
         "containerDiskInGb": 20,
-        "imageName":         image_name,
+        "imageName":         img,
         "env":               env_block,
     }
     if auth_id:
         payload["containerRegistryAuthId"] = auth_id
 
-    print(f"[INFO] Creating pod – GPU='{gpu_type}'  image='{image_name}'")
-    resp = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
-    if not resp.ok:
-        print("[ERROR] Pod creation failed:", resp.status_code)
-        print(resp.text)
-        sys.exit(1)
+    print(f"[INFO] Creating pod – GPU='{gpu_type}'  image='{img}'")
+    r = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
+    r.raise_for_status()
+    pod_id = r.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
+    print(f"[INFO] Pod created: {pod_id}")
 
-    pod_id = resp.json().get("id")
-    if not pod_id:
-        sys.exit("[ERROR] No pod ID returned in the response.")
-    print(f"[INFO] Pod created with ID={pod_id}")
-
-    # ------------------------------------------------------------- poll status
+    # poll status ------------------------------------------------------------
     while True:
         time.sleep(20)
-        statu = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
-        if not statu.ok:
-            print("[WARN] GET /pods/{podId} failed – retrying…")
+        s = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
+        if not s.ok:
+            print("[WARN] status check failed; retrying …")
             continue
-        status = statu.json().get("status", "UNKNOWN")
+        status = s.json().get("status", "UNKNOWN")
         print(f"[INFO] Pod status = {status}")
         if status not in ("Pending", "Running"):
             break
 
-    # -------------------------------------------------------------- fetch logs
+    # tail logs --------------------------------------------------------------
     logs = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
     if logs.ok:
         print("------ Pod logs (tail) ------")
         print(logs.text[-3000:])
     else:
-        print("[WARN] Could not fetch logs. HTTP", logs.status_code)
+        print("[WARN] Could not fetch logs; HTTP", logs.status_code)
 
 
 if __name__ == "__main__":
