@@ -14,7 +14,6 @@ Example styles:
   • BloodMagic   -> "Blood_Magic_-_Grimoire-000011.safetensors"
   • Disney       -> "Disney_Nouveau.safetensors"
   • MagicalLines -> "iLLMythM4gicalL1nes.safetensors"
-  • SemiReal     -> "Semi-real pretty fantasy - IL.safetensors"
 """
 
 import json
@@ -78,7 +77,6 @@ CKPTS = {
     "BloodMagic":   "Blood_Magic_-_Grimoire-000011.safetensors",
     "Disney":       "Disney_Nouveau.safetensors",
     "MagicalLines": "iLLMythM4gicalL1nes.safetensors",
-    "SemiReal":     "Semi-real pretty fantasy - IL.safetensors",
 }
 
 def main():
