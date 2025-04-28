@@ -1,4 +1,19 @@
-{"id":"m-001","name":"Sir Aldric","heads":7.8,"skin":"fair","hair":"blond short","clothing":"steel half-plate and crimson surcoat","desc":"landed knight sworn to House Carron","seed":2001,"style":"real"}
-{"id":"m-002","name":"Lady Ysabel","heads":7.3,"skin":"olive","hair":"dark braided","clothing":"brocade gown with ermine trim","desc":"court diplomat fluent in four tongues","seed":2002,"style":"handpt"}
-{"id":"m-003","name":"Father Berengar","heads":7.1,"skin":"ruddy","hair":"brown tonsure","clothing":"worn wool cassock and oak staff","desc":"traveling priest chronicling miracles","seed":2003,"style":"albion"}
-{"id":"m-004","name":"Garin the Miller","heads":7.0,"skin":"fair","hair":"sandy mop","clothing":"linen shirt with flour stains","desc":"cheerful miller who controls river tolls","seed":2004,"style":"lowpoly"}
+{"id":"m-001-bloodmagic","name":"Sir Aldric","heads":7.8,"skin":"fair","hair":"blond short","clothing":"steel half-plate and crimson surcoat","desc":"landed knight sworn to House Carron","seed":2001,"style":"BloodMagic"}
+{"id":"m-001-disney","name":"Sir Aldric","heads":7.8,"skin":"fair","hair":"blond short","clothing":"steel half-plate and crimson surcoat","desc":"landed knight sworn to House Carron","seed":2101,"style":"Disney"}
+{"id":"m-001-magicallines","name":"Sir Aldric","heads":7.8,"skin":"fair","hair":"blond short","clothing":"steel half-plate and crimson surcoat","desc":"landed knight sworn to House Carron","seed":2201,"style":"MagicalLines"}
+{"id":"m-001-semireal","name":"Sir Aldric","heads":7.8,"skin":"fair","hair":"blond short","clothing":"steel half-plate and crimson surcoat","desc":"landed knight sworn to House Carron","seed":2301,"style":"SemiReal"}
+
+{"id":"m-002-bloodmagic","name":"Lady Ysabel","heads":7.3,"skin":"olive","hair":"dark braided","clothing":"brocade gown with ermine trim","desc":"court diplomat fluent in four tongues","seed":2002,"style":"BloodMagic"}
+{"id":"m-002-disney","name":"Lady Ysabel","heads":7.3,"skin":"olive","hair":"dark braided","clothing":"brocade gown with ermine trim","desc":"court diplomat fluent in four tongues","seed":2102,"style":"Disney"}
+{"id":"m-002-magicallines","name":"Lady Ysabel","heads":7.3,"skin":"olive","hair":"dark braided","clothing":"brocade gown with ermine trim","desc":"court diplomat fluent in four tongues","seed":2202,"style":"MagicalLines"}
+{"id":"m-002-semireal","name":"Lady Ysabel","heads":7.3,"skin":"olive","hair":"dark braided","clothing":"brocade gown with ermine trim","desc":"court diplomat fluent in four tongues","seed":2302,"style":"SemiReal"}
+
+{"id":"m-003-bloodmagic","name":"Father Berengar","heads":7.1,"skin":"ruddy","hair":"brown tonsure","clothing":"worn wool cassock and oak staff","desc":"traveling priest chronicling miracles","seed":2003,"style":"BloodMagic"}
+{"id":"m-003-disney","name":"Father Berengar","heads":7.1,"skin":"ruddy","hair":"brown tonsure","clothing":"worn wool cassock and oak staff","desc":"traveling priest chronicling miracles","seed":2103,"style":"Disney"}
+{"id":"m-003-magicallines","name":"Father Berengar","heads":7.1,"skin":"ruddy","hair":"brown tonsure","clothing":"worn wool cassock and oak staff","desc":"traveling priest chronicling miracles","seed":2203,"style":"MagicalLines"}
+{"id":"m-003-semireal","name":"Father Berengar","heads":7.1,"skin":"ruddy","hair":"brown tonsure","clothing":"worn wool cassock and oak staff","desc":"traveling priest chronicling miracles","seed":2303,"style":"SemiReal"}
+
+{"id":"m-004-bloodmagic","name":"Garin the Miller","heads":7.0,"skin":"fair","hair":"sandy mop","clothing":"linen shirt with flour stains","desc":"cheerful miller who controls river tolls","seed":2004,"style":"BloodMagic"}
+{"id":"m-004-disney","name":"Garin the Miller","heads":7.0,"skin":"fair","hair":"sandy mop","clothing":"linen shirt with flour stains","desc":"cheerful miller who controls river tolls","seed":2104,"style":"Disney"}
+{"id":"m-004-magicallines","name":"Garin the Miller","heads":7.0,"skin":"fair","hair":"sandy mop","clothing":"linen shirt with flour stains","desc":"cheerful miller who controls river tolls","seed":2204,"style":"MagicalLines"}
+{"id":"m-004-semireal","name":"Garin the Miller","heads":7.0,"skin":"fair","hair":"sandy mop","clothing":"linen shirt with flour stains","desc":"cheerful miller who controls river tolls","seed":2304,"style":"SemiReal"}
