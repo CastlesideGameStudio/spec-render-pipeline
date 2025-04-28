@@ -11,7 +11,7 @@ on:
         default: 'latest'
       gpu_type:
         description: "For On-Demand. Examples: 'NVIDIA A40', 'NVIDIA GeForce RTX 3090', etc."
-        default: 'NVIDIA GeForce RTX 3090'
+        default: 'NVIDIA A40'
 
 jobs:
   render:
