@@ -14,14 +14,11 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/aws
  && /tmp/aws/install \
  && rm -rf /tmp/awscliv2.zip /tmp/aws
 
-# 3. Install GPU-based PyTorch (CUDA 11.8) + xformers + safetensors
+# 3. Let pip auto-resolve Torch (CUDA 11.8) + xformers + safetensors
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir \
-    torch==2.0.0+cu118 \
-    torchvision==0.15.1+cu118 \
     --extra-index-url https://download.pytorch.org/whl/cu118 \
-    xformers==0.0.20 \
-    safetensors==0.3.1
+    torch torchvision xformers safetensors
 
 # 4. Clone ComfyUI
 WORKDIR /app
@@ -33,7 +30,7 @@ COPY graphs/ /app/ComfyUI/flows/
 # 6. Copy your scripts
 COPY scripts/ /app/scripts/
 
-# 7. Copy your checkpoints folder
+# 7. Copy your checkpoints folder (if you have local .safetensors to bake in)
 RUN mkdir -p /app/ComfyUI/models/checkpoints
 COPY checkpoints/ /app/ComfyUI/models/checkpoints/
 
