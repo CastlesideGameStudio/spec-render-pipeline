@@ -18,8 +18,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write
+      contents: read       # allows us to read repo content
+      packages: write      # needed to push to GHCR
 
     steps:
       # 1. Check out repo
@@ -38,8 +38,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # 4. Build and push the placeholder image
-      - name: Build placeholder image
+      # 4. Build & push container (both :<sha> and :latest tags)
+      - name: Build and push
         run: |
+          # Build and push with commit SHA tag
           docker build -t ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} .
           docker push ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }}
+
+          # Also tag & push as :latest
+          docker tag ghcr.io/${{ env.LC_REPO }}/spec-render:${{ github.sha }} \
+                     ghcr.io/${{ env.LC_REPO }}/spec-render:latest
+          docker push ghcr.io/${{ env.LC_REPO }}/spec-render:latest

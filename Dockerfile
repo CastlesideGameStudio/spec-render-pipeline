@@ -1,37 +1,52 @@
-# Example Dockerfile – replace the stub
-# Installs Python 3.11, clones ComfyUI, copies your graphs, etc.
+# Dockerfile – GPU-based, includes safetensors, plus AWS CLI
+FROM python:3.11
 
-FROM python:3.11-slim AS base
-LABEL maintainer="CastlesideGameStudio"
+LABEL maintainer="Your Name <you@example.com>"
 
-# 1) Install OS-level dependencies (e.g., git, wget)
+# 1. Install OS-level dependencies
+#    - git, curl, unzip for AWS CLI
+#    - possibly libgl1 if needed by some UIs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git wget curl ca-certificates \
+    git curl unzip ca-certificates libgl1 \
  && rm -rf /var/lib/apt/lists/*
 
-# 2) Create a workspace directory
-WORKDIR /app
+# 2. Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" \
+ && unzip /tmp/awscliv2.zip -d /tmp \
+ && /tmp/aws/install \
+ && rm -rf /tmp/awscliv2.zip /tmp/aws
 
-# 3) Clone ComfyUI (or you can do a git clone of your own code if you prefer)
+# 3. Install GPU-based PyTorch (CUDA 11.8), plus xformers, safetensors, etc.
+#    - Adjust versions or add more packages as needed
+RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir \
+    torch==2.0.0+cu118 \
+    torchvision==0.15.1+cu118 \
+    --extra-index-url https://download.pytorch.org/whl/cu118 \
+    xformers==0.0.20 \
+    safetensors==0.3.1
+
+# 4. Clone ComfyUI (or your custom repo) into /app/ComfyUI
+WORKDIR /app
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 
-# 4) Copy your local graphs/*.json into the container
-#    (assuming your repo has a folder named "graphs" at the root)
-COPY graphs/*.json /app/ComfyUI/flows/
+# 5. Copy your ComfyUI graphs
+COPY graphs/ /app/ComfyUI/flows/
 
-# 5) Install Python dependencies (if ComfyUI or your code needs them)
-#    Example: pip install some library
-RUN pip install --no-cache-dir torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
+# 6. Copy your scripts
+COPY scripts/ /app/scripts/
 
-# 6) (Optional) Download or copy your checkpoint .safetensors
-#    If you store your stable diffusion models in the container, do something like:
-# COPY checkpoints/*.safetensors /app/checkpoints/
-# or
-# RUN wget -O /app/checkpoints/model.safetensors https://...link...
-# adjust as needed
+# 7. (Optional) If ComfyUI has more dependencies, install them
+#    e.g. pip install --no-cache-dir -r /app/ComfyUI/requirements.txt
 
-# 7) Set an entrypoint or CMD that runs ComfyUI (or your script)
-#    Example: run ComfyUI with default settings
-WORKDIR /app/ComfyUI
-CMD ["python", "main.py", "--dont-open-browser"]
+# 8. Copy your large safetensors from local "checkpoints/" to the container
+#    NOTE: This can make your image very large if these files are big.
+RUN mkdir -p /app/ComfyUI/models/checkpoints
+COPY checkpoints/ /app/ComfyUI/models/checkpoints/
 
+# 9. Copy your entrypoint (bash or python script)
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# 10. Set default command
+CMD ["/app/entrypoint.sh"]
