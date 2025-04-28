@@ -4,8 +4,6 @@ FROM python:3.11
 LABEL maintainer="Your Name <you@example.com>"
 
 # 1. Install OS-level dependencies
-#    - git, curl, unzip for AWS CLI
-#    - possibly libgl1 if needed by some UIs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl unzip ca-certificates libgl1 \
  && rm -rf /var/lib/apt/lists/*
@@ -16,8 +14,7 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/aws
  && /tmp/aws/install \
  && rm -rf /tmp/awscliv2.zip /tmp/aws
 
-# 3. Install GPU-based PyTorch (CUDA 11.8), plus xformers, safetensors, etc.
-#    - Adjust versions or add more packages as needed
+# 3. Install GPU-based PyTorch (CUDA 11.8) + xformers + safetensors
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir \
     torch==2.0.0+cu118 \
@@ -26,27 +23,23 @@ RUN pip install --no-cache-dir \
     xformers==0.0.20 \
     safetensors==0.3.1
 
-# 4. Clone ComfyUI (or your custom repo) into /app/ComfyUI
+# 4. Clone ComfyUI
 WORKDIR /app
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 
-# 5. Copy your ComfyUI graphs
+# 5. Copy your ComfyUI graphs (if you have them in "graphs/" locally)
 COPY graphs/ /app/ComfyUI/flows/
 
 # 6. Copy your scripts
 COPY scripts/ /app/scripts/
 
-# 7. (Optional) If ComfyUI has more dependencies, install them
-#    e.g. pip install --no-cache-dir -r /app/ComfyUI/requirements.txt
-
-# 8. Copy your large safetensors from local "checkpoints/" to the container
-#    NOTE: This can make your image very large if these files are big.
+# 7. Copy your checkpoints folder
 RUN mkdir -p /app/ComfyUI/models/checkpoints
 COPY checkpoints/ /app/ComfyUI/models/checkpoints/
 
-# 9. Copy your entrypoint (bash or python script)
-COPY entrypoint.sh /app/entrypoint.sh
+# 8. Copy your entrypoint script and make it executable
+COPY scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# 10. Set default command
+# 9. Set default CMD
 CMD ["/app/entrypoint.sh"]
