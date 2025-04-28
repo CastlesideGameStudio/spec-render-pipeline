@@ -2,9 +2,10 @@
 name: Build & Push Container
 
 on:
-  # manual trigger
+  # Manual “Run workflow” button
   workflow_dispatch:
-  # re-build when core files change
+
+  # Auto-rebuild whenever core files change
   push:
     paths:
       - Dockerfile
@@ -19,17 +20,16 @@ jobs:
       contents: read          # read the repo
       packages: write         # push to GHCR
 
-    env:
-      IMAGE_NAME: spec-render # repo/<IMAGE_NAME>:tag
-
     steps:
+      # 1) Check out source
       - uses: actions/checkout@v4
 
-      # derive fully-lowercase repo owner/name → ${{ steps.repo.outputs.repo }}
-      - name: Lower-case repo name
+      # 2) Lower-case “owner/repo” for GHCR
+      - name: Derive repo path
         id: repo
         run: echo "repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >>"$GITHUB_OUTPUT"
 
+      # 3) Buildx + login
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -37,12 +37,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # one build, one push, two tags (SHA + latest) — atomic
+      # 4) One build, one push, two tags (SHA + latest) – atomic
       - name: Build & push (sha + latest)
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ steps.repo.outputs.repo }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ghcr.io/${{ steps.repo.outputs.repo }}/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ steps.repo.outputs.repo }}:${{ github.sha }}
+            ghcr.io/${{ steps.repo.outputs.repo }}:latest

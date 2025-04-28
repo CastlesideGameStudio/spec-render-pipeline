@@ -2,122 +2,133 @@
 """
 launch_pod_on_demand.py – spins up one On-Demand pod on RunPod via the REST API.
 
-Environment variables (from GitHub Actions or local shell):
-  RUNPOD_API_KEY       – your "Bearer" token (required)
-  PROMPT_GLOB          – NDJSON pattern (default "addendums/**/*.ndjson")
-  IMAGE_TAG            – container tag (default "latest")
-  GPU_TYPE             – e.g. "NVIDIA GeForce RTX 3090", "NVIDIA A40", etc.
-  AWS_ACCESS_KEY_ID    – (optional) if container uploads to S3
-  AWS_SECRET_ACCESS_KEY– (optional) if container uploads to S3
-  AWS_DEFAULT_REGION   – (optional) region of your S3 bucket
+Environment variables (from GitHub Actions or local shell)
+
+  # --- required --------------------------------------------------------------
+  RUNPOD_API_KEY          – your “Bearer …” token from https://runpod.io
+  # --- optional / have defaults ---------------------------------------------
+  PROMPT_GLOB             – NDJSON pattern         (default: addendums/**/*.ndjson)
+  IMAGE_TAG               – container tag          (default: latest)
+  IMAGE_DIGEST            – full image digest      (overrides IMAGE_TAG if set)
+  GPU_TYPE                – e.g. “NVIDIA A40”      (default: NVIDIA A40)
+  CONTAINER_AUTH_ID       – RunPod registry-auth ID (if image is private)
+  # S3 credentials (only forwarded to the container)
+  AWS_ACCESS_KEY_ID
+  AWS_SECRET_ACCESS_KEY
+  AWS_DEFAULT_REGION      – (default: us-east-1)
 """
 
-import os
-import sys
 import glob
-import time
+import os
 import pathlib
+import sys
+import time
 import requests
 
-BASE_URL = "https://rest.runpod.io/v1"
-API_PODS = f"{BASE_URL}/pods"       # POST or GET for Pod creation/listing
-API_LOGS = f"{BASE_URL}/pods/logs"  # GET logs
+BASE_URL   = "https://rest.runpod.io/v1"
+API_PODS   = f"{BASE_URL}/pods"
+API_LOGS   = f"{BASE_URL}/pods/logs"
 
-def main():
-    # 1) Validate environment
+
+def build_image_ref() -> str:
+    """
+    Build the GHCR reference.  The image lives exactly at
+    ghcr.io/<owner>/<repo>:<tag>  (or @<digest> if IMAGE_DIGEST is set).
+    """
+    repo_slug   = os.getenv("GITHUB_REPOSITORY", "").lower()     # owner/repo
+    digest      = os.getenv("IMAGE_DIGEST")                      # sha256:…
+    image_tag   = os.getenv("IMAGE_TAG", "latest")
+
+    if digest:                                                   # immutable pin
+        return f"ghcr.io/{repo_slug}@{digest}"
+    else:
+        return f"ghcr.io/{repo_slug}:{image_tag}"
+
+
+def main() -> None:
+
+    # ------------------------------------------------------------------ config
     runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
     if not runpod_api_key:
         sys.exit("[ERROR] RUNPOD_API_KEY missing or empty.")
 
     prompt_glob = os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")
-    image_tag   = os.getenv("IMAGE_TAG", "latest")
     gpu_type    = os.getenv("GPU_TYPE", "NVIDIA A40")
+    image_name  = build_image_ref()
+    auth_id     = os.getenv("CONTAINER_AUTH_ID")  # optional
 
-    # 2) Gather NDJSON lines from local repo
-    all_lines = []
+    # ---------------------------------------------------------------- prompts
+    all_lines: list[str] = []
     for path in glob.glob(prompt_glob, recursive=True):
-        txt = pathlib.Path(path).read_text(encoding="utf-8").splitlines()
-        # skip blank lines
-        lines = [ln for ln in txt if ln.strip()]
+        lines = [
+            ln for ln in pathlib.Path(path).read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
         all_lines.extend(lines)
 
     if not all_lines:
         sys.exit(f"[ERROR] No prompts found matching '{prompt_glob}'.")
 
-    print(f"[INFO] Found {len(all_lines)} total lines from '{prompt_glob}'")
+    print(f"[INFO] Found {len(all_lines)} total prompt lines")
 
-    # Combine lines into one multiline environment variable
-    # so the container can parse them at runtime.
     env_block = {
         "PROMPTS_NDJSON": "\n".join(all_lines),
-
-        # Forward AWS creds if the container needs them for S3 upload
-        "AWS_ACCESS_KEY_ID":      os.getenv("AWS_ACCESS_KEY_ID", ""),
-        "AWS_SECRET_ACCESS_KEY":  os.getenv("AWS_SECRET_ACCESS_KEY", ""),
-        "AWS_DEFAULT_REGION":     os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+        "AWS_ACCESS_KEY_ID":     os.getenv("AWS_ACCESS_KEY_ID", ""),
+        "AWS_SECRET_ACCESS_KEY": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+        "AWS_DEFAULT_REGION":    os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
     }
 
-    # 3) Build container reference – e.g. "ghcr.io/owner/repo/spec-render:latest"
-    repo_slug  = os.getenv("GITHUB_REPOSITORY", "yourorg/yourrepo").lower()
-    image_name = f"ghcr.io/{repo_slug}/spec-render:{image_tag}"
-
-    # 4) Create the Pod (On-Demand) with the v1 REST
+    # ----------------------------------------------------------------- create pod
     headers = {
         "Authorization": f"Bearer {runpod_api_key}",
         "Content-Type":  "application/json",
     }
-    payload = {
+
+    payload: dict = {
         "name":              "spec-render-on-demand",
-        "cloudType":         "SECURE",         # on-demand
-        "gpuTypeIds":        [gpu_type],       # array of GPU type
+        "cloudType":         "SECURE",     # on-demand
+        "gpuTypeIds":        [gpu_type],
         "gpuCount":          1,
-        "volumeInGb":        20,               # ephemeral disk if needed
+        "volumeInGb":        20,
         "containerDiskInGb": 20,
         "imageName":         image_name,
-        "env":               env_block
+        "env":               env_block,
     }
+    if auth_id:
+        payload["containerRegistryAuthId"] = auth_id
 
-    print(f"[INFO] Creating Pod with GPU='{gpu_type}' image='{image_name}'")
+    print(f"[INFO] Creating pod – GPU='{gpu_type}'  image='{image_name}'")
     resp = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
     if not resp.ok:
-        print("[ERROR] Pod creation failed.")
-        print("Status:", resp.status_code)
-        print("Response:", resp.text)
+        print("[ERROR] Pod creation failed:", resp.status_code)
+        print(resp.text)
         sys.exit(1)
 
-    pod_data = resp.json()
-    pod_id   = pod_data.get("id")
+    pod_id = resp.json().get("id")
     if not pod_id:
         sys.exit("[ERROR] No pod ID returned in the response.")
-
     print(f"[INFO] Pod created with ID={pod_id}")
 
-    # 5) Poll for status until it's no longer Running
+    # ------------------------------------------------------------- poll status
     while True:
         time.sleep(20)
-        r_stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
-        if not r_stat.ok:
-            print("[WARN] GET /pods/{podId} failed, ignoring temporarily")
+        statu = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
+        if not statu.ok:
+            print("[WARN] GET /pods/{podId} failed – retrying…")
             continue
-        status_data = r_stat.json()
-        status = status_data.get("status")
-        print(f"[INFO] Pod status={status}")
-        # If status is "Succeeded" or "Failed" or "Stopped", we're done
+        status = statu.json().get("status", "UNKNOWN")
+        print(f"[INFO] Pod status = {status}")
         if status not in ("Pending", "Running"):
-            print("[INFO] Pod is no longer Running. Breaking out of loop.")
             break
 
-    # 6) Fetch logs if available
-    logs_resp = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
-    if logs_resp.ok:
-        logs_txt = logs_resp.text
-        print("------ Pod logs ------")
-        # Print last 3000 chars
-        print(logs_txt[-3000:])
+    # -------------------------------------------------------------- fetch logs
+    logs = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
+    if logs.ok:
+        print("------ Pod logs (tail) ------")
+        print(logs.text[-3000:])
     else:
-        print("[WARN] Could not fetch logs. Status =", logs_resp.status_code)
+        print("[WARN] Could not fetch logs. HTTP", logs.status_code)
 
-    sys.exit(0)
 
 if __name__ == "__main__":
     main()
