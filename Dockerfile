@@ -4,7 +4,7 @@ LABEL maintainer="Your Name <you@example.com>"
 
 # 1) System dependencies + AWS CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl unzip ca-certificates libgl1 \
+    git curl unzip ca-certificates libgl1 jq \   # ← added jq
  && rm -rf /var/lib/apt/lists/*
 
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" \
@@ -32,12 +32,14 @@ COPY graphs/ /app/ComfyUI/flows/
 RUN echo "[DEBUG] Copied $(find /app/ComfyUI/flows -type f -name '*.json' | wc -l) graph(s):" \
  && ls -1 /app/ComfyUI/flows || true
 
-# 7) Copy scripts, checkpoints, etc.
-COPY scripts/ /app/scripts/
+# 7) Copy only .safetensors checkpoints
 RUN mkdir -p /app/ComfyUI/models/checkpoints
-COPY checkpoints/ /app/ComfyUI/models/checkpoints/
-RUN echo "[DEBUG] Copied $(find /app/ComfyUI/models/checkpoints -type f -name '*.safetensors' | wc -l) checkpoint(s):" \
- && ls -1 /app/ComfyUI/models/checkpoints || true
+COPY checkpoints/ /tmp/ckpt-staging/
+RUN find /tmp/ckpt-staging -type f -name '*.safetensors' \
+        -exec cp {} /app/ComfyUI/models/checkpoints/ \; \
+ && echo "[DEBUG] Copied $(ls -1 /app/ComfyUI/models/checkpoints | wc -l) checkpoint(s):" \
+ && ls -1 /app/ComfyUI/models/checkpoints || true \
+ && rm -rf /tmp/ckpt-staging
 
 # 8) Make entrypoint executable + set as default CMD
 COPY scripts/entrypoint.sh /app/entrypoint.sh
