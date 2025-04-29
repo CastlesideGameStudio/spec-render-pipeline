@@ -1,14 +1,7 @@
-name: Build & Push (digest only)
+name: Build & Push (manual only)
 
 on:
-  workflow_dispatch:
-  push:
-    paths:
-      - Dockerfile
-      - graphs/**
-      - specs/**
-      - .github/workflows/build.yml
-      - scripts/launch_pod_on_demand.py   # rebuild if the launcher changes
+  workflow_dispatch:      # run this workflow only when triggered manually
 
 jobs:
   build:
