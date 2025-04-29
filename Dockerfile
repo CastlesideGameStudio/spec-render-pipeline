@@ -4,7 +4,7 @@ LABEL maintainer="Your Name <you@example.com>"
 
 # 1) System dependencies + AWS CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl unzip ca-certificates libgl1 jq \   # ← added jq
+    git curl unzip ca-certificates libgl1 jq \      # added jq
  && rm -rf /var/lib/apt/lists/*
 
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" \
