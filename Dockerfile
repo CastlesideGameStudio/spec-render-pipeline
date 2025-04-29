@@ -29,13 +29,20 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 
 # 6) Copy your ComfyUI graphs
 COPY graphs/ /app/ComfyUI/flows/
+RUN echo "[DEBUG] Copied $(find /app/ComfyUI/flows -type f -name '*.json' | wc -l) graph(s):" \
+ && ls -1 /app/ComfyUI/flows || true
 
 # 7) Copy scripts, checkpoints, etc.
 COPY scripts/ /app/scripts/
 RUN mkdir -p /app/ComfyUI/models/checkpoints
 COPY checkpoints/ /app/ComfyUI/models/checkpoints/
+RUN echo "[DEBUG] Copied $(find /app/ComfyUI/models/checkpoints -type f -name '*.safetensors' | wc -l) checkpoint(s):" \
+ && ls -1 /app/ComfyUI/models/checkpoints || true
 
 # 8) Make entrypoint executable + set as default CMD
 COPY scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh \
+ && echo "[DEBUG] Entrypoint copied and made executable:" \
+ && ls -l /app/entrypoint.sh
+
 CMD ["/app/entrypoint.sh"]
