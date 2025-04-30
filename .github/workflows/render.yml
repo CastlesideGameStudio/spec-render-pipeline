@@ -9,7 +9,8 @@ on:
 
       image_name:
         description: Container image tag
-        default: 'valyriantech/comfyui-with-flux:latest'   # public Docker Hub
+        # Use the community flux-based image by default
+        default: 'valyriantech/comfyui-with-flux:latest'
 
       gpu_type:
         description: GPU type for the pod
@@ -27,7 +28,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
+        with:
+          python-version: '3.11'
 
       - run: pip install requests
 
