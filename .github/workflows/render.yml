@@ -7,9 +7,9 @@ on:
         description: NDJSON files to include in this batch
         default: 'addendums/**/*.ndjson'
 
-      image_name:                               # wrapper image tag
+      image_name:
         description: Container image tag
-        default: 'ghcr.io/${{ github.repository }}/comfy-flux-wrapper:latest'
+        default: 'ghcr.io/castlesidegamestudio/comfy-flux-wrapper:latest'
 
       gpu_type:
         description: GPU type for the pod
@@ -25,27 +25,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
+        with: { python-version: '3.11' }
       - run: pip install requests
 
       - name: Launch On-Demand Pod
         env:
-          # RunPod auth
-          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_API_KEY:        ${{ secrets.RUNPOD_API_KEY }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    ${{ secrets.AWS_DEFAULT_REGION }}
 
-          # S3 creds forwarded to the container
-          AWS_ACCESS_KEY_ID:      ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY:  ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION:     ${{ secrets.AWS_DEFAULT_REGION }}
-
-          # batch-specific settings
-          PROMPT_GLOB:  ${{ inputs.prompt_glob }}
-          IMAGE_NAME:   ${{ inputs.image_name }}
-          GPU_TYPE:     ${{ inputs.gpu_type }}
-          VOLUME_GB:    ${{ inputs.volume_gb }}
+          PROMPT_GLOB: ${{ inputs.prompt_glob }}
+          IMAGE_NAME:  ${{ inputs.image_name }}
+          GPU_TYPE:    ${{ inputs.gpu_type }}
+          VOLUME_GB:   ${{ inputs.volume_gb }}
 
         run: python scripts/launch_pod_on_demand.py
