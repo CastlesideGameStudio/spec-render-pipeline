@@ -3,13 +3,14 @@
 launch_pod_on_demand.py – spin up one On-Demand RunPod instance and stream logs.
 
 Required env vars
-  RUNPOD_API_KEY   – bearer token from https://runpod.io
-  IMAGE_DIGEST     – sha256:… of the container image to run
+  RUNPOD_API_KEY – bearer token from https://runpod.io
 Optional
-  PROMPT_GLOB      – NDJSON pattern (default: addendums/**/*.ndjson)
-  GPU_TYPE         – GPU name, e.g. “NVIDIA A40” (default)
-  CONTAINER_AUTH_ID– RunPod registry-auth ID for private images
-  AWS_*            – forwarded unchanged to the container
+  IMAGE_NAME     – full container tag (e.g. runpod/comfyui:cu118-py311)   ← NEW
+  IMAGE_DIGEST   – sha256:… (used only if IMAGE_NAME absent; legacy path)
+  PROMPT_GLOB    – NDJSON pattern (default: addendums/**/*.ndjson)
+  GPU_TYPE       – GPU, e.g. “NVIDIA A40” (default)
+  CONTAINER_AUTH_ID – registry-auth ID for private images
+  AWS_*          – forwarded unchanged to the container
 """
 
 import glob
@@ -19,32 +20,33 @@ import sys
 import time
 import requests
 
-BASE = "https://rest.runpod.io/v1"
+BASE  = "https://rest.runpod.io/v1"
 API_PODS = f"{BASE}/pods"
 
 
-# ---------------------------------------------------------------------------
-
+# ─────────────────────────────────────────────────────────────────────────────
 def image_ref() -> str:
-    repo = os.getenv("GITHUB_REPOSITORY", "").lower()
+    """Prefer IMAGE_NAME (template tag); fall back to digest for GHCR images."""
+    name = os.getenv("IMAGE_NAME")
+    if name:
+        return name                                   # runpod/comfyui:cu118-py311
     digest = os.getenv("IMAGE_DIGEST")
     if not digest:
-        sys.exit("[ERROR] IMAGE_DIGEST is mandatory.")
+        sys.exit("[ERROR] IMAGE_NAME or IMAGE_DIGEST must be set.")
+    repo = os.getenv("GITHUB_REPOSITORY", "").lower()
     return f"ghcr.io/{repo}@{digest}"
 
 
 def gather_prompts(pattern: str) -> str:
     lines: list[str] = []
     for path in glob.glob(pattern, recursive=True):
-        text = pathlib.Path(path).read_text().splitlines()
-        lines += [ln for ln in text if ln.strip()]
+        lines += [ln for ln in pathlib.Path(path).read_text().splitlines() if ln.strip()]
     if not lines:
         sys.exit(f"[ERROR] No prompts matched '{pattern}'.")
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-
+# ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     api_key = os.getenv("RUNPOD_API_KEY") or sys.exit("[ERROR] RUNPOD_API_KEY missing.")
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -79,7 +81,7 @@ def main() -> None:
     pod_id = resp.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
     print(f"[INFO] Pod created: {pod_id}")
 
-    # ---------------------------------------------------------------- log streaming
+    # ───── log streaming ────────────────────────────────────────────────────
     last_log = ""
     while True:
         time.sleep(10)
@@ -89,9 +91,7 @@ def main() -> None:
         if log_resp.ok:
             txt = log_resp.text
             if txt != last_log:
-                new = txt[len(last_log):]
-                if new.strip():
-                    print(new, end="", flush=True)
+                print(txt[len(last_log):], end="", flush=True)
                 last_log = txt
 
         # status check

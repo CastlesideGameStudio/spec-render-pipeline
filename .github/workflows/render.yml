@@ -6,9 +6,9 @@ on:
       prompt_glob:
         description: NDJSON files to include in this batch
         default: 'addendums/**/*.ndjson'
-      image_digest:
-        description: Container digest (sha256:…)
-        required: true
+      image_name:                                  # ← template tag instead of digest
+        description: Container image tag
+        default: 'runpod/comfyui:cu118-py311'      # RunPod’s ComfyUI CUDA-11.8 image
       gpu_type:
         description: "GPU type, e.g. 'NVIDIA A40'"
         default: 'NVIDIA A40'
@@ -32,7 +32,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY:  ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION:     ${{ secrets.AWS_DEFAULT_REGION }}
 
-          PROMPT_GLOB: ${{ inputs.prompt_glob }}
-          IMAGE_DIGEST: ${{ inputs.image_digest }}
-          GPU_TYPE:    ${{ inputs.gpu_type }}
+          PROMPT_GLOB:  ${{ inputs.prompt_glob }}
+          IMAGE_NAME:   ${{ inputs.image_name }}   # ← passes tag, not digest
+          GPU_TYPE:     ${{ inputs.gpu_type }}
         run: python scripts/launch_pod_on_demand.py
