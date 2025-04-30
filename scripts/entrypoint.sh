@@ -21,17 +21,14 @@ echo "[INFO] S3 dest : $S3_PREFIX"
 python /app/ComfyUI/main.py --dont-print-server --listen 0.0.0.0 --port 8188 --output-directory "$OUT_DIR" &
 SERVER_PID=$!
 
-# wait until the server replies
 until curl -s http://localhost:8188/system_stats >/dev/null 2>&1; do sleep 1; done
 echo "[INFO] ComfyUI server ready."
 
 # helper: wait for a new PNG to appear
 wait_for_new_png() {
     local before="$1"
-    local file=""
     until [[ $(ls -1 "$OUT_DIR" | wc -l) -gt $before ]]; do sleep 1; done
-    file=$(ls -1t "$OUT_DIR" | head -n1)
-    echo "$file"
+    ls -1t "$OUT_DIR" | head -n1
 }
 
 # ───────────── main loop ────────────────────────────────────────────────────
@@ -42,13 +39,15 @@ while IFS= read -r PROMPT_JSON; do
 
   STYLE=$(jq -r '.style' <<<"$PROMPT_JSON")
   GRAPH_PATH="/app/ComfyUI/flows/graph_${STYLE}.json"
-  GRAPH_JSON=$(cat "$GRAPH_PATH")
+  GRAPH_JSON=$(jq -c . "$GRAPH_PATH")          # compact object, not string
 
   echo "[${COUNT}/${TOTAL}] Rendering ${PROMPT_ID}"
 
-  # build HTTP payload: graph nodes + prompt as extra_data
-  PAYLOAD=$(jq -n --argjson g "$GRAPH_JSON" --argjson p "$PROMPT_JSON" \
-      '{ "prompt": $g, "extra_data": { "prompt": $p } }')
+  # build HTTP payload: graph object + prompt metadata
+  PAYLOAD=$(jq -c \
+      --argjson graph "$GRAPH_JSON" \
+      --argjson prompt "$PROMPT_JSON" \
+      '{ "prompt": $graph, "extra_data": { "id": $prompt.id } }')
 
   BEFORE=$(ls -1 "$OUT_DIR" | wc -l)
   curl -s -X POST -H 'Content-Type: application/json' \
