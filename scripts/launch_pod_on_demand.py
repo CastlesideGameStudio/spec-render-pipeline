@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 """
-Create an On-Demand RunPod (COMMUNITY) pod and stream logs.
+Launch a RunPod On-Demand pod and stream logs.
 
 env
   RUNPOD_API_KEY   (required)
   IMAGE_NAME       valyriantech/comfyui-with-flux:latest
   GPU_TYPE         NVIDIA A40 (default)
-  VOLUME_GB        120 (default; plenty for Flux copy)
+  VOLUME_GB        120 (default)
   PROMPT_GLOB      addendums/**/*.ndjson (default)
   AWS_*            forwarded to container
 """
 
 import glob, os, pathlib, sys, time, requests, json
-
 API = "https://rest.runpod.io/v1/pods"
 
-
 def image_tag() -> str:
-    if (name := os.getenv("IMAGE_NAME")): return name
-    sys.exit("[ERROR] IMAGE_NAME must be set (use the Flux tag).")
-
+    name = os.getenv("IMAGE_NAME")
+    if not name:
+        sys.exit("[ERROR] IMAGE_NAME must be set (use the Flux tag).")
+    return name
 
 def prompts(glob_pat: str) -> str:
     lines = [ln for p in glob.glob(glob_pat, recursive=True)
@@ -27,7 +26,6 @@ def prompts(glob_pat: str) -> str:
     if not lines:
         sys.exit(f"[ERROR] No prompts matched '{glob_pat}'.")
     return "\n".join(lines)
-
 
 def main() -> None:
     key = os.getenv("RUNPOD_API_KEY") or sys.exit("[ERROR] RUNPOD_API_KEY missing.")
@@ -38,27 +36,28 @@ def main() -> None:
     image = image_tag()
 
     payload = {
-        "name": "spec-render-batch",
-        "cloudType": "COMMUNITY",         # ← community template
-        "gpuTypeIds": [gpu],
-        "gpuCount": 1,
-        "volumeInGb": disk,
+        "name":              "spec-render-batch",
+        "cloudType":         "SECURE",
+        "gpuTypeIds":        [gpu],
+        "gpuCount":          1,
+        "volumeInGb":        disk,
         "containerDiskInGb": disk,
-        "imageName": image,
+        "imageName":         image,
         "env": {
             "PROMPTS_NDJSON": prompts(os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")),
             "AWS_ACCESS_KEY_ID":     os.getenv("AWS_ACCESS_KEY_ID", ""),
             "AWS_SECRET_ACCESS_KEY": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
             "AWS_DEFAULT_REGION":    os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
         },
-        "startCommand": (
-            "/bin/bash -c "
+        # correct key ↓
+        "command": [
+            "/bin/bash","-c",
             "curl -fsSL "
             "https://raw.githubusercontent.com/CastlesideGameStudio/"
             "spec-render-pipeline/main/scripts/entrypoint.sh "
             "-o /tmp/entrypoint.sh && "
             "chmod +x /tmp/entrypoint.sh && /tmp/entrypoint.sh"
-        ),
+        ],
     }
 
     print("[INFO] Requesting pod …")
@@ -67,9 +66,9 @@ def main() -> None:
         sys.exit(f"[ERROR] create failed HTTP {r.status_code}\n{r.text}")
 
     body = r.json()
-    if "id" not in body:
+    pod_id = body.get("id")
+    if not pod_id:
         sys.exit(f"[ERROR] create failed\n{json.dumps(body, indent=2)}")
-    pod_id = body["id"]
     print("[INFO] Pod ID:", pod_id)
 
     last = ""
@@ -85,7 +84,6 @@ def main() -> None:
             break
 
     print("[INFO] Done streaming logs.")
-
 
 if __name__ == "__main__":
     main()
