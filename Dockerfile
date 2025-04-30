@@ -13,8 +13,8 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/aws
     /tmp/aws/install && \
     rm -rf /tmp/aws*
 
-# 2) Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip
+# 2) Upgrade pip and add PyYAML
+RUN pip install --no-cache-dir --upgrade pip pyyaml   # ← added pyyaml
 
 # 3) Install torch + torchvision + safetensors in one step (no xformers yet)
 RUN pip install --no-cache-dir \
