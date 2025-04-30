@@ -7,13 +7,17 @@ on:
         description: NDJSON files to include in this batch
         default: 'addendums/**/*.ndjson'
 
-      image_name:                     # ← public Docker-Hub tag
+      image_name:                               # wrapper image tag
         description: Container image tag
-        default: 'valyriantech/comfyui-with-flux:latest'
+        default: 'ghcr.io/${{ github.repository }}/comfy-flux-wrapper:latest'
 
       gpu_type:
-        description: "GPU type, e.g. 'NVIDIA A40'"
+        description: GPU type for the pod
         default: 'NVIDIA A40'
+
+      volume_gb:
+        description: Disk size in GB (must fit Flux models)
+        default: '120'
 
 jobs:
   render:
@@ -40,7 +44,8 @@ jobs:
 
           # batch-specific settings
           PROMPT_GLOB:  ${{ inputs.prompt_glob }}
-          IMAGE_NAME:   ${{ inputs.image_name }}   # ← passed to launcher
+          IMAGE_NAME:   ${{ inputs.image_name }}
           GPU_TYPE:     ${{ inputs.gpu_type }}
+          VOLUME_GB:    ${{ inputs.volume_gb }}
 
         run: python scripts/launch_pod_on_demand.py
