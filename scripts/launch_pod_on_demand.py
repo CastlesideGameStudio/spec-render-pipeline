@@ -27,18 +27,18 @@ API_PODS = f"{BASE}/pods"
 
 def image_ref() -> str:
     """
-    Just use IMAGE_NAME if present, else default to flux image.
+    Prefer IMAGE_NAME if set; otherwise default to valyriantech/comfyui-with-flux:latest.
     """
     name = os.getenv("IMAGE_NAME")
     if name:
         return name
-    # fallback:
+    # fallback if not set:
     return "valyriantech/comfyui-with-flux:latest"
 
 
 def gather_prompts(pattern: str) -> str:
     """
-    Reads all .ndjson lines matching pattern, concatenates them.
+    Reads all .ndjson lines matching pattern, concatenates them into one string.
     """
     lines = []
     for path in glob.glob(pattern, recursive=True):
@@ -79,46 +79,44 @@ def main() -> None:
         "containerDiskInGb": volume_gb,
         "imageName":         image,
         "env":               env_block,
-        # Here is where we override the container's entrypoint:
+        # Override the container's entrypoint to clone your repo + run entrypoint.sh
         "containerEntrypoint": ["/bin/bash"],
         "containerCmd": [
             "-c",
-            # 1) update + install needed packages
-            "apt-get update && apt-get install -y git jq && "
-            # 2) clone your pipeline code from GitHub
-            "git clone https://github.com/YOUR_ORG/YOUR_REPO.git /workspace/pipeline && "
-            # (Adjust the URL above to your actual pipeline repo)
-            #
-            # 3) make entrypoint executable
+            # 1) install any needed packages
+            "apt-get update && apt-get install -y git jq git-lfs && "
+            # 2) set up Git LFS (remove if you don't need it)
+            "git lfs install && "
+            # 3) clone your spec-render-pipeline repo
+            "git clone https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/pipeline && "
+            "cd /workspace/pipeline && git lfs pull && "
+            # 4) make entrypoint executable
             "chmod +x /workspace/pipeline/scripts/entrypoint.sh && "
-            #
-            # 4) run your pipeline script
+            # 5) run your pipeline script
             "/workspace/pipeline/scripts/entrypoint.sh"
         ],
     }
 
-    # If you need a registry auth ID (for private repos/images), add it:
+    # If you need registry auth for private images, add this
     if auth_id:
         payload["containerRegistryAuthId"] = auth_id
 
-    # -- Create the pod
-    print(f"[INFO] Creating pod – GPU='{gpu_type}'  image='{image}'  disk={volume_gb} GB")
+    # Create the Pod
+    print(f"[INFO] Creating pod – GPU='{gpu_type}'  image='{image}'  disk={volume_gb}GB")
     resp = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
     resp.raise_for_status()
     pod_id = resp.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
     print(f"[INFO] Pod created: {pod_id}")
 
-    # -- Log streaming
+    # Log streaming
     last_log = ""
     while True:
         time.sleep(10)
-        # incremental logs
         log_resp = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
         if log_resp.ok and log_resp.text != last_log:
             print(log_resp.text[len(last_log):], end="", flush=True)
             last_log = log_resp.text
 
-        # status check
         stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
         status = stat.json().get("status", "UNKNOWN") if stat.ok else "UNKNOWN"
         if status not in ("Pending", "Running"):
