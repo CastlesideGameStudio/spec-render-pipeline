@@ -9,7 +9,7 @@ on:
 
       image_name:
         description: Container image tag
-        default: 'ghcr.io/castlesidegamestudio/comfy-flux-wrapper:latest'
+        default: 'ghcr.io/valyriantech/comfy-flux-wrapper:latest'
 
       gpu_type:
         description: GPU type for the pod
