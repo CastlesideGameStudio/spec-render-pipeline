@@ -1,10 +1,38 @@
 #!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# entrypoint.sh – clone overlays, pull checkpoints, render every NDJSON prompt,
+#                 upload PNGs to S3, then exit.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
+### 0. Guard-rails -----------------------------------------------------------
 [[ -z "${PROMPTS_NDJSON:-}"       ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
 [[ -z "${AWS_ACCESS_KEY_ID:-}"    ]] && { echo "[ERROR] AWS creds missing";  exit 1; }
 
-COMFY=/workspace/ComfyUI          # Flux template location
+### 1. One-time tool sanity (jq + awscli often missing) ----------------------
+command -v jq  >/dev/null || { apt-get update -qq && apt-get install -y jq; }
+command -v aws >/dev/null || { apt-get update -qq && apt-get install -y awscli; }
+
+### 2. Pull repo overlays ----------------------------------------------------
+: "${REPO_URL:=https://github.com/<ORG>/<REPO>.git}"   # adjust once; can be overridden
+: "${REPO_BRANCH:=main}"
+
+echo "[INFO] Cloning $REPO_URL@$REPO_BRANCH …"
+git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" /tmp/repo
+
+# Graph JSONs
+cp /tmp/repo/graphs/*.json   /workspace/ComfyUI/flows/ || true
+
+### 3. Sync checkpoints from S3 ---------------------------------------------
+mkdir -p /workspace/ComfyUI/models/checkpoints
+aws s3 sync s3://castlesidegamestudio-checkpoints/ \
+            /workspace/ComfyUI/models/checkpoints/ \
+            --exclude "*" --include "*.safetensors"
+
+echo "[INFO] Graphs + checkpoints ready."
+
+### 4. Prepare prompt file ---------------------------------------------------
+COMFY=/workspace/ComfyUI
 OUT_DIR=/tmp/out
 mkdir -p /tmp && echo "$PROMPTS_NDJSON" > /tmp/prompts.ndjson
 rm -rf "$OUT_DIR" && mkdir -p "$OUT_DIR"
@@ -16,14 +44,17 @@ S3_PREFIX="s3://castlesidegamestudio-spec-sheets/${STAMP}"
 echo "[INFO] Prompts : $TOTAL"
 echo "[INFO] S3 dest : $S3_PREFIX"
 
+### 5. Start ComfyUI head-less ----------------------------------------------
 python "$COMFY/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
         --output-directory "$OUT_DIR" &
+
 SERVER_PID=$!
 until curl -s http://localhost:8188/system_stats >/dev/null; do sleep 1; done
 echo "[INFO] ComfyUI server ready."
 
 wait_new() { local n="$1"; until [[ $(ls -1 "$OUT_DIR" | wc -l) -gt $n ]]; do sleep 1; done; ls -1t "$OUT_DIR" | head -n1; }
 
+### 6. Render loop -----------------------------------------------------------
 while IFS= read -r PJ; do
   COUNT=$((COUNT+1))
   PID=$(jq -r '.id // empty' <<<"$PJ"); [[ -z "$PID" || "$PID" == null ]] && PID=$(printf "%03d" "$COUNT")
@@ -47,5 +78,6 @@ while IFS= read -r PJ; do
   rm -f "$OUT_DIR/${PID}.png"
 done < /tmp/prompts.ndjson
 
+### 7. Cleanup ---------------------------------------------------------------
 kill "$SERVER_PID"
 echo "[✓] All $TOTAL prompts processed and uploaded."
