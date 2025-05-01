@@ -57,7 +57,9 @@ def main() -> None:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     gpu_type  = os.getenv("GPU_TYPE", "NVIDIA A40")
-    volume_gb = int(os.getenv("VOLUME_GB", "120"))  # default 120 GB
+    # honour VOLUME_GB if it’s set *and* non-empty, otherwise fall back to 120
+    _vol_env  = os.getenv("VOLUME_GB", "").strip()
+    volume_gb = int(_vol_env) if _vol_env else 120
     image     = image_ref()
     auth_id   = os.getenv("CONTAINER_AUTH_ID", "")
 
