@@ -2,15 +2,15 @@
 """
 launch_pod_on_demand.py – spin up one On-Demand RunPod instance and stream logs.
 
-Required:
+Required env var:
   RUNPOD_API_KEY      – bearer token from https://runpod.io
 
-Optional env vars consumed here:
-  IMAGE_NAME          – full container tag (e.g. valyriantech/comfyui-with-flux:latest)
-  PROMPT_GLOB         – NDJSON pattern (default addendums/**/*.ndjson)
-  GPU_TYPE            – GPU, e.g. “NVIDIA A40” (default)
-  VOLUME_GB           – disk size in GB (default 120)
-  CONTAINER_AUTH_ID   – registry-auth ID for private images (not needed if public)
+Optional env vars:
+  IMAGE_NAME          – container tag (default: valyriantech/comfyui-with-flux:latest)
+  PROMPT_GLOB         – NDJSON pattern (default: addendums/**/*.ndjson)
+  GPU_TYPE            – GPU type, e.g. "NVIDIA A40" (default)
+  VOLUME_GB           – disk size in GB (default: 120; ignored if blank)
+  CONTAINER_AUTH_ID   – registry-auth ID for private images (skip if public)
   AWS_*               – forwarded unchanged to the container
 """
 
@@ -25,41 +25,34 @@ BASE = "https://rest.runpod.io/v1"
 API_PODS = f"{BASE}/pods"
 
 
+# --------------------------------------------------------------------------- helpers
 def image_ref() -> str:
-    """
-    Prefer IMAGE_NAME if set; otherwise default to valyriantech/comfyui-with-flux:latest.
-    """
-    name = os.getenv("IMAGE_NAME")
-    if name:
-        return name
-    # fallback if not set:
-    return "valyriantech/comfyui-with-flux:latest"
+    """IMAGE_NAME if set, otherwise default to the public Flux image."""
+    return os.getenv("IMAGE_NAME", "valyriantech/comfyui-with-flux:latest")
 
 
 def gather_prompts(pattern: str) -> str:
-    """
-    Reads all .ndjson lines matching pattern, concatenates them into one string.
-    """
+    """Concatenate all lines from every *.ndjson file matching *pattern*."""
     lines = []
     for path in glob.glob(pattern, recursive=True):
-        with open(path, "r", encoding="utf-8") as f:
-            for ln in f:
-                ln = ln.strip()
-                if ln:
-                    lines.append(ln)
+        text = pathlib.Path(path).read_text(encoding="utf-8").splitlines()
+        lines += [ln for ln in text if ln.strip()]
     if not lines:
         sys.exit(f"[ERROR] No prompts matched '{pattern}'.")
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- main
 def main() -> None:
     api_key = os.getenv("RUNPOD_API_KEY") or sys.exit("[ERROR] RUNPOD_API_KEY missing.")
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
     gpu_type  = os.getenv("GPU_TYPE", "NVIDIA A40")
-    # honour VOLUME_GB if it’s set *and* non-empty, otherwise fall back to 120
-    _vol_env  = os.getenv("VOLUME_GB", "").strip()
-    volume_gb = int(_vol_env) if _vol_env else 120
+    vol_env   = os.getenv("VOLUME_GB", "").strip()
+    volume_gb = int(vol_env) if vol_env else 120
     image     = image_ref()
     auth_id   = os.getenv("CONTAINER_AUTH_ID", "")
 
@@ -81,44 +74,37 @@ def main() -> None:
         "containerDiskInGb": volume_gb,
         "imageName":         image,
         "env":               env_block,
-        # Override the container's entrypoint to clone your repo + run entrypoint.sh
-        "containerEntrypoint": ["/bin/bash"],
-        "containerCmd": [
-            "-c",
-            # 1) install any needed packages
-            "apt-get update && apt-get install -y git jq git-lfs && "
-            # 2) set up Git LFS (remove if you don't need it)
-            "git lfs install && "
-            # 3) clone your spec-render-pipeline repo
-            "git clone https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/pipeline && "
-            "cd /workspace/pipeline && git lfs pull && "
-            # 4) make entrypoint executable
-            "chmod +x /workspace/pipeline/scripts/entrypoint.sh && "
-            # 5) run your pipeline script
-            "/workspace/pipeline/scripts/entrypoint.sh"
-        ],
     }
-
-    # If you need registry auth for private images, add this
+    # If you need registry auth for private images
     if auth_id:
         payload["containerRegistryAuthId"] = auth_id
 
-    # Create the Pod
-    print(f"[INFO] Creating pod – GPU='{gpu_type}'  image='{image}'  disk={volume_gb}GB")
+    # ------------------------------------------------------------------- create-pod call
+    print(f"[INFO] Creating pod → GPU={gpu_type}  image={image}  disk={volume_gb}GB")
     resp = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
-    resp.raise_for_status()
+
+    # If there's an HTTP error, print the response body and exit
+    if resp.status_code >= 400:
+        print("[ERROR] Pod creation failed → HTTP", resp.status_code)
+        print(resp.text)
+        sys.exit(1)
+
+    # Grab the ID
     pod_id = resp.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
     print(f"[INFO] Pod created: {pod_id}")
 
-    # Log streaming
+    # ------------------------------------------------------------------- log streaming
     last_log = ""
     while True:
         time.sleep(10)
+
+        # Fetch logs
         log_resp = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
         if log_resp.ok and log_resp.text != last_log:
             print(log_resp.text[len(last_log):], end="", flush=True)
             last_log = log_resp.text
 
+        # Check pod status
         stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
         status = stat.json().get("status", "UNKNOWN") if stat.ok else "UNKNOWN"
         if status not in ("Pending", "Running"):
