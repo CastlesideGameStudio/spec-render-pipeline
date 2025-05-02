@@ -5,6 +5,9 @@ set -euo pipefail
 [[ -z "${PROMPTS_NDJSON:-}"    ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
 [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && { echo "[ERROR] AWS creds missing";  exit 1; }
 
+# ---------- ensure we always have a region (overridden by env if supplied) --------
+: "${AWS_DEFAULT_REGION:=us-east-2}"      # change the fallback if you prefer
+
 ################################## 1. Tool sanity ##################################
 command -v jq  >/dev/null || { apt-get update -qq && apt-get install -y --no-install-recommends jq; }
 
@@ -14,22 +17,18 @@ command -v aws >/dev/null || {
 }
 
 ################################## 2. Locate ComfyUI ################################
-# Community image paths in priority order
 for d in /workspace/ComfyUI /opt/ComfyUI /ComfyUI; do
     if [[ -d "$d" ]]; then COMFY_DIR="$d"; break; fi
 done
-
 [[ -d "${COMFY_DIR:-}" ]] || { echo "[ERROR] ComfyUI directory not found"; exit 1; }
 
-# be sure the flows folder exists so `cp` never complains
-mkdir -p "$COMFY_DIR/flows"
-
-# repo was cloned by dockerStartCmd → /workspace/repo
+mkdir -p "$COMFY_DIR/flows"              # ensure the flows folder exists
 cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 
-################################## 3. Checkpoint bucket ################################
-: "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"   # override in workflow if needed
-aws s3 ls "s3://${CHECKPOINT_BUCKET}" >/dev/null 2>&1 || {
+################################## 3. Checkpoints from S3 ###########################
+: "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
+
+aws s3 ls "s3://${CHECKPOINT_BUCKET}" --region "$AWS_DEFAULT_REGION" >/dev/null 2>&1 || {
     echo "[ERROR] S3 bucket ${CHECKPOINT_BUCKET} not found."
     exit 1
 }
@@ -37,24 +36,25 @@ aws s3 ls "s3://${CHECKPOINT_BUCKET}" >/dev/null 2>&1 || {
 mkdir -p "$COMFY_DIR/models/checkpoints"
 aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
             "$COMFY_DIR/models/checkpoints/" \
+            --region "$AWS_DEFAULT_REGION" \
             --exclude "*" --include "*.safetensors"
 
 echo "[INFO] Graphs + checkpoints ready."
 
-################################## 4. Prompt file & output dir #######################
+################################## 4. Prompt file & output dir ######################
 OUT_DIR=/tmp/out
 mkdir -p /tmp && echo "$PROMPTS_NDJSON" > /tmp/prompts.ndjson
 rm -rf "$OUT_DIR" && mkdir -p "$OUT_DIR"
 
 TOTAL=$(wc -l < /tmp/prompts.ndjson); COUNT=0
 STAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-: "${SPEC_SHEET_BUCKET:=castlesidegamestudio-spec-sheets}"   # override if desired
+: "${SPEC_SHEET_BUCKET:=castlesidegamestudio-spec-sheets}"
 S3_PREFIX="s3://${SPEC_SHEET_BUCKET}/${STAMP}"
 
 echo "[INFO] Prompts : $TOTAL"
 echo "[INFO] S3 dest : $S3_PREFIX"
 
-################################## 5. Start ComfyUI headless #########################
+################################## 5. Start ComfyUI headless ########################
 python "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
         --output-directory "$OUT_DIR" &
 SERVER_PID=$!
@@ -63,7 +63,7 @@ echo "[INFO] ComfyUI server ready."
 
 wait_new() { local n="$1"; until [[ $(ls -1 "$OUT_DIR" | wc -l) -gt $n ]]; do sleep 1; done; ls -1t "$OUT_DIR" | head -n1; }
 
-################################## 6. Render loop ####################################
+################################## 6. Render loop ###################################
 while IFS= read -r PJ; do
   COUNT=$((COUNT+1))
   PID=$(jq -r '.id // empty' <<<"$PJ"); [[ -z "$PID" || "$PID" == null ]] && PID=$(printf "%03d" "$COUNT")
@@ -83,10 +83,10 @@ while IFS= read -r PJ; do
   mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
 
   echo "[${COUNT}/${TOTAL}] Uploading to ${S3_PREFIX}/${PID}/"
-  aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/"
+  aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" --region "$AWS_DEFAULT_REGION"
   rm -f "$OUT_DIR/${PID}.png"
 done < /tmp/prompts.ndjson
 
-################################## 7. Cleanup ########################################
+################################## 7. Cleanup #######################################
 kill "$SERVER_PID"
 echo "[✓] All $TOTAL prompts processed and uploaded."
