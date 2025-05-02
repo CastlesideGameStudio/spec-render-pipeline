@@ -73,7 +73,11 @@ def main() -> None:
         "volumeInGb":        volume_gb,
         "containerDiskInGb": volume_gb,
         "imageName":         image,
-        "dockerStartCmd":    ["bash", "-c", "/workspace/entrypoint.sh"],
+        "dockerStartCmd": [
+            "bash", "-c",
+            "apt-get update -qq && apt-get install -y jq git awscli && "
+            "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && bash /workspace/repo/scripts/entrypoint.sh"
+        ],
         "env":               env_block,
     }
     # If you need registry auth for private images
