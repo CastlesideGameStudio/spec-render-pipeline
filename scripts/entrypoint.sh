@@ -14,15 +14,18 @@ command -v aws >/dev/null || {
 }
 
 ################################## 2. Locate ComfyUI ################################
-# community image (valyriantech/comfyui-with-flux) keeps it in /opt/ComfyUI
-COMFY_DIR="/workspace/ComfyUI"
-[[ -d "$COMFY_DIR" ]] || COMFY_DIR="/opt/ComfyUI"
-[[ -d "$COMFY_DIR" ]] || { echo "[ERROR] ComfyUI directory not found"; exit 1; }
+# Community image paths in priority order
+for d in /workspace/ComfyUI /opt/ComfyUI /ComfyUI; do
+    if [[ -d "$d" ]]; then COMFY_DIR="$d"; break; fi
+done
 
+[[ -d "${COMFY_DIR:-}" ]] || { echo "[ERROR] ComfyUI directory not found"; exit 1; }
+
+# be sure the flows folder exists so `cp` never complains
 mkdir -p "$COMFY_DIR/flows"
 
 # repo was cloned by dockerStartCmd → /workspace/repo
-cp /workspace/repo/graphs/*.json  "$COMFY_DIR/flows/" 2>/dev/null || true
+cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 
 ################################## 3. Checkpoint bucket ################################
 : "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"   # override in workflow if needed
