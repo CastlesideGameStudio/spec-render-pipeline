@@ -73,7 +73,7 @@ def main() -> None:
         "volumeInGb":        volume_gb,
         "containerDiskInGb": volume_gb,
         "imageName":         image,
-        "dockerArgs": "bash -c '/workspace/entrypoint.sh'",
+        "dockerStartCmd":    ["bash", "-c", "/workspace/entrypoint.sh"],
         "env":               env_block,
     }
     # If you need registry auth for private images
