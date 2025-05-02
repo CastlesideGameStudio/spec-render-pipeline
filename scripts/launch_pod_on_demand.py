@@ -75,8 +75,11 @@ def main() -> None:
         "imageName":         image,
         "dockerStartCmd": [
             "bash", "-c",
-            "apt-get update -qq && apt-get install -y jq git awscli && "
-            "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && bash /workspace/repo/scripts/entrypoint.sh"
+            "export DEBIAN_FRONTEND=noninteractive && \
+            apt-get update -qq && \
+            apt-get install -y --no-install-recommends jq git awscli tzdata && \
+            git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && \
+            bash /workspace/repo/scripts/entrypoint.sh"
         ],
         "env":               env_block,
     }
