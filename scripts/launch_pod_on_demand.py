@@ -61,11 +61,11 @@ def main() -> None:
         "imageName":         image,
         "dockerStartCmd": [
             "bash", "-c",
-            # non-interactive installs + compatible awscli 2.x
+            # non-interactive installs + AWS CLI (latest v1.32+ → botocore 1.34+)
             "export DEBIAN_FRONTEND=noninteractive && "
             "apt-get update -qq && "
-            "apt-get install -y --no-install-recommends jq git python3-pip tzdata && "
-            "python3 -m pip install --no-cache-dir --upgrade 'awscli>=2' && "
+            "apt-get install -y --no-install-recommends jq git python3-pip && "
+            "python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32' && "
             # clone repo only once
             "[ -d /workspace/repo/.git ] || "
             "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git "

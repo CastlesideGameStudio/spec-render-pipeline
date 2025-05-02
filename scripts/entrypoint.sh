@@ -14,7 +14,7 @@ command -v jq  >/dev/null || { apt-get update -qq && apt-get install -y jq; }
 
 command -v aws >/dev/null || {
     apt-get update -qq && apt-get install -y python3-pip
-    python3 -m pip install --no-cache-dir --upgrade 'awscli>=2'
+    python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32'
 }
 
 ### 2. Graph overlays --------------------------------------------------------
