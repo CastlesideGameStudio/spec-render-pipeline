@@ -11,11 +11,15 @@ set -euo pipefail
 
 ### 1. One-time tool sanity (jq + awscli often missing) ----------------------
 command -v jq  >/dev/null || { apt-get update -qq && apt-get install -y jq; }
-command -v aws >/dev/null || { apt-get update -qq && apt-get install -y awscli; }
+
+command -v aws >/dev/null || {
+    apt-get update -qq && apt-get install -y python3-pip
+    python3 -m pip install --no-cache-dir --upgrade 'awscli>=2'
+}
 
 ### 2. Graph overlays --------------------------------------------------------
-# The repo is already cloned by dockerStartCmd into /workspace/repo
-cp /workspace/repo/graphs/*.json   /workspace/ComfyUI/flows/ || true
+# Repo already cloned by dockerStartCmd into /workspace/repo
+cp /workspace/repo/graphs/*.json  /workspace/ComfyUI/flows/ || true
 
 ### 3. Sync checkpoints from S3 ---------------------------------------------
 mkdir -p /workspace/ComfyUI/models/checkpoints
@@ -38,7 +42,7 @@ S3_PREFIX="s3://castlesidegamestudio-spec-sheets/${STAMP}"
 echo "[INFO] Prompts : $TOTAL"
 echo "[INFO] S3 dest : $S3_PREFIX"
 
-### 5. Start ComfyUI headless -----------------------------------------------
+### 5. Start ComfyUI head-less ----------------------------------------------
 python "$COMFY/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
         --output-directory "$OUT_DIR" &
 SERVER_PID=$!
