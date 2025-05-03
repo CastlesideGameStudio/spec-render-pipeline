@@ -16,6 +16,7 @@ export AWS_ACCESS_KEY_ID="$LINODE_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$LINODE_SECRET_ACCESS_KEY"
 export AWS_DEFAULT_REGION="$LINODE_DEFAULT_REGION"
 export S3_ENDPOINT="$LINODE_S3_ENDPOINT"
+export AWS_S3_ADDRESSING_STYLE=path
 
 export PS4='[\D{%F %T}] ${BASH_SOURCE##*/}:${LINENO}: '
 set -x                                    # ultra-verbose tracing
