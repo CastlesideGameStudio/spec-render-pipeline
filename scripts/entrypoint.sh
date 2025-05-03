@@ -2,7 +2,7 @@
 set -eEuo pipefail
 
 ###############################################################################
-# 0.  Guard-rails & full debug
+# 0. Guard-rails & full debug
 ###############################################################################
 [[ -z "${PROMPTS_NDJSON:-}"    ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
 [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && { echo "[ERROR] AWS creds missing";  exit 1; }
@@ -13,7 +13,7 @@ export PS4='[\D{%F %T}] ${BASH_SOURCE##*/}:${LINENO}: '
 set -x                                   # super-verbose tracing
 
 ###############################################################################
-# 1.  Tool sanity           (jq, inotifywait, awscli)
+# 1. Tool sanity  (jq, inotifywait, awscli)
 ###############################################################################
 export DEBIAN_FRONTEND=noninteractive
 
@@ -22,7 +22,7 @@ command -v inotifywait >/dev/null || { apt-get update -qq && apt-get install -y 
 command -v aws         >/dev/null || python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32'
 
 ###############################################################################
-# 2.  Locate ComfyUI
+# 2. Locate ComfyUI
 ###############################################################################
 for d in /workspace/ComfyUI /opt/ComfyUI /ComfyUI; do
   [[ -d "$d" ]] && { COMFY_DIR="$d"; break; }
@@ -33,15 +33,20 @@ mkdir -p "$COMFY_DIR/flows"
 cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 
 ###############################################################################
-# 3.  Sync checkpoints from S3  (FAIL if bucket missing / no perms)
+# 3. Sync checkpoints from S3   (FAIL-FAST if bucket missing or no perms)
 ###############################################################################
 : "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
 
-echo "# bucket-existence check:"
-echo "+ aws s3 ls \"s3://${CHECKPOINT_BUCKET}\" --region \"${AWS_DEFAULT_REGION}\" --only-show-errors"
-if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" --region "$AWS_DEFAULT_REGION" --only-show-errors >/dev/null 2>&1; then
-  echo "[ERROR] Bucket \"${CHECKPOINT_BUCKET}\" is missing **or** this IAM principal lacks ListBucket."
-  echo "        Aborting rather than creating a bucket."
+echo "# sanity-check S3 access:"
+echo "+ aws sts get-caller-identity --output text"
+aws sts get-caller-identity --output text || {
+  echo "[FATAL] Invalid AWS credentials." >&2; exit 1; }
+
+echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET} --region ${AWS_DEFAULT_REGION}"
+if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
+               --region "$AWS_DEFAULT_REGION" --only-show-errors >/dev/null 2>&1; then
+  echo "[FATAL] Cannot ListBucket on '${CHECKPOINT_BUCKET}' in region '${AWS_DEFAULT_REGION}'."
+  echo "        Grant this IAM principal s3:ListBucket + s3:GetObject and try again."
   exit 1
 fi
 
@@ -55,7 +60,7 @@ aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
 echo "[INFO] Graphs + checkpoints ready."
 
 ###############################################################################
-# 4.  Prompt file & output dir
+# 4. Prompt file & output dir
 ###############################################################################
 OUT_DIR=/tmp/out
 mkdir -p /tmp && printf '%s\n' "$PROMPTS_NDJSON" > /tmp/prompts.ndjson
@@ -70,7 +75,7 @@ echo "[INFO] Prompts : $TOTAL"
 echo "[INFO] S3 dest : $S3_PREFIX"
 
 ###############################################################################
-# 5.  Start ComfyUI headless
+# 5. Start ComfyUI headless
 ###############################################################################
 python3 "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
         --output-directory "$OUT_DIR" &
@@ -86,7 +91,7 @@ echo "[INFO] ComfyUI server ready."
 wait_new() { inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1; }
 
 ###############################################################################
-# 6.  Render loop
+# 6. Render loop
 ###############################################################################
 while IFS= read -r PJ; do
   COUNT=$((COUNT+1))
@@ -114,6 +119,6 @@ while IFS= read -r PJ; do
 done < /tmp/prompts.ndjson
 
 ###############################################################################
-# 7.  All done
+# 7. All done
 ###############################################################################
 echo "[✓] All $TOTAL prompts processed and uploaded."
