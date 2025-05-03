@@ -50,7 +50,12 @@ if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
                --endpoint-url "$S3_ENDPOINT" \
                --region "$LINODE_DEFAULT_REGION" \
                --only-show-errors >/dev/null 2>&1; then
-  echo "[FATAL] Cannot ListBucket on '${CHECKPOINT_BUCKET}'. Check your Linode keys."
+  echo "[ERROR] Failed to access bucket '${CHECKPOINT_BUCKET}'."
+  echo "Possible reasons:"
+  echo "  - The bucket name is incorrect or doesn't exist in region '${LINODE_DEFAULT_REGION}'."
+  echo "  - Your Linode credentials lack permission to list or access the bucket."
+  echo "  - The region or endpoint is mismatched with the bucket's actual location."
+  echo "[FATAL] Exiting due to bucket access error."
   exit 1
 fi
 
