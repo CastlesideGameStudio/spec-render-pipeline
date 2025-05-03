@@ -7,22 +7,18 @@ set -eEuo pipefail
 [[ -z "${PROMPTS_NDJSON:-}"    ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
 [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && { echo "[ERROR] AWS creds missing";  exit 1; }
 
-# --- default region unless caller exports another ---------------------------
-: "${AWS_DEFAULT_REGION:=us-east-2}"
+: "${AWS_DEFAULT_REGION:=us-east-2}"     # default unless caller overrides
 
-# --- turn on super-verbose tracing ------------------------------------------
 export PS4='[\D{%F %T}] ${BASH_SOURCE##*/}:${LINENO}: '
-set -x
+set -x                                   # super-verbose tracing
 
 ###############################################################################
-# 1.  Tool sanity  (jq, inotifywait, awscli)
+# 1.  Tool sanity           (jq, inotifywait, awscli)
 ###############################################################################
 export DEBIAN_FRONTEND=noninteractive
 
-command -v jq          >/dev/null || apt-get update -qq && \
-                         apt-get install -y --no-install-recommends jq
-command -v inotifywait >/dev/null || apt-get update -qq && \
-                         apt-get install -y --no-install-recommends inotify-tools
+command -v jq          >/dev/null || { apt-get update -qq && apt-get install -y --no-install-recommends jq; }
+command -v inotifywait >/dev/null || { apt-get update -qq && apt-get install -y --no-install-recommends inotify-tools; }
 command -v aws         >/dev/null || python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32'
 
 ###############################################################################
@@ -37,20 +33,16 @@ mkdir -p "$COMFY_DIR/flows"
 cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 
 ###############################################################################
-# 3.  Sync checkpoints from S3  (auto-create bucket if missing)
+# 3.  Sync checkpoints from S3  (FAIL if bucket missing / no perms)
 ###############################################################################
 : "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
 
 echo "# bucket-existence check:"
 echo "+ aws s3 ls \"s3://${CHECKPOINT_BUCKET}\" --region \"${AWS_DEFAULT_REGION}\" --only-show-errors"
 if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" --region "$AWS_DEFAULT_REGION" --only-show-errors >/dev/null 2>&1; then
-  echo "[WARN] bucket ${CHECKPOINT_BUCKET} not found – creating it."
-  echo "+ aws s3api create-bucket --bucket ${CHECKPOINT_BUCKET} --region ${AWS_DEFAULT_REGION}"
-  aws s3api create-bucket \
-       --bucket "$CHECKPOINT_BUCKET" \
-       --region "$AWS_DEFAULT_REGION" \
-       $( [[ "$AWS_DEFAULT_REGION" != "us-east-1" ]] && \
-          echo --create-bucket-configuration LocationConstraint="$AWS_DEFAULT_REGION" )
+  echo "[ERROR] Bucket \"${CHECKPOINT_BUCKET}\" is missing **or** this IAM principal lacks ListBucket."
+  echo "        Aborting rather than creating a bucket."
+  exit 1
 fi
 
 mkdir -p "$COMFY_DIR/models/checkpoints"
@@ -98,7 +90,8 @@ wait_new() { inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1; }
 ###############################################################################
 while IFS= read -r PJ; do
   COUNT=$((COUNT+1))
-  PID=$(jq -r '.id // empty' <<<"$PJ"); [[ -z "$PID" || "$PID" == null ]] && PID=$(printf "%03d" "$COUNT")
+  PID=$(jq -r '.id // empty' <<<"$PJ")
+  [[ -z "$PID" || "$PID" == null ]] && PID=$(printf "%03d" "$COUNT")
   STYLE=$(jq -r '.style' <<<"$PJ")
   GRAPH_JSON=$(jq -c . "$COMFY_DIR/flows/graph_${STYLE}.json")
 
