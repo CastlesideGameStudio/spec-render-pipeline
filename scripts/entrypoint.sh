@@ -45,31 +45,39 @@ cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 : "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
 
 echo "# sanity-check bucket access:"
-echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET} --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --only-show-errors"
+echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET} --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}'"
+
 if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
                --endpoint-url "$S3_ENDPOINT" \
-               --region "$LINODE_DEFAULT_REGION" \
-               --only-show-errors >/dev/null 2>&1; then
+               --region "$LINODE_DEFAULT_REGION" >/dev/null 2>&1; then
 
   echo "[ERROR] Bucket check failed for 's3://${CHECKPOINT_BUCKET}'."
+  echo
   echo "Here are some common causes and tips to fix them:"
-  echo "  • **Misspelled or non-existent bucket name**. Double-check the bucket"
-  echo "    name in your script vs. what you see if you run"
-  echo "    'aws s3 ls --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}'."
-  echo "  • **Mismatch between bucket region and endpoint**. For example, if the"
-  echo "    bucket is in Newark, but you're using 'us-ord-1.linodeobjects.com' (Chicago)."
-  echo "    You can confirm the bucket region by running:"
+  echo "  • **Misspelled or non-existent bucket name**."
+  echo "    Double-check the bucket name in your script vs. what you see if you run:"
+  echo "      aws s3 ls --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}"
+  echo
+  echo "  • **Mismatch between bucket region and endpoint**."
+  echo "    For example, if the bucket is in Newark (us-east-1.linodeobjects.com),"
+  echo "    but you're using us-ord-1.linodeobjects.com (Chicago). You can confirm"
+  echo "    the bucket's location by running:"
   echo "      aws s3api get-bucket-location --bucket ${CHECKPOINT_BUCKET} \\"
   echo "        --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}"
-  echo "  • **Insufficient credentials**. Your Linode key must have permissions"
-  echo "    for this bucket (list, read, etc.)."
-  echo ""
+  echo
+  echo "  • **Insufficient credentials**."
+  echo "    Your Linode key must have permissions for this bucket (list, read, etc.)."
+  echo
+  echo "Tip: To see the CLI's exact error message, remove '--only-show-errors' or run"
+  echo "the same 'aws s3 ls' command manually without redirecting to /dev/null."
+  echo
   echo "[FATAL] Exiting due to bucket-access error."
   exit 1
 fi
 
 mkdir -p "$COMFY_DIR/models/checkpoints"
 echo "+ aws s3 sync s3://${CHECKPOINT_BUCKET}/ $COMFY_DIR/models/checkpoints/ --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --exclude '*' --include '*.safetensors' --only-show-errors --no-progress"
+
 aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
             "$COMFY_DIR/models/checkpoints/" \
             --endpoint-url "$S3_ENDPOINT" \
