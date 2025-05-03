@@ -5,21 +5,19 @@ set -eEuo pipefail
 # 0. Guard-rails, debug & Linode→AWS shim
 ###############################################################################
 [[ -z "${PROMPTS_NDJSON:-}"        ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
-[[ -z "${LINODE_ACCESS_KEY_ID:-}"  ]] && { echo "[ERROR] LINODE creds missing";  exit 1; }
-[[ -z "${LINODE_SECRET_ACCESS_KEY:-}" ]] && { echo "[ERROR] LINODE creds missing";  exit 1; }
+[[ -z "${LINODE_ACCESS_KEY_ID:-}"  ]] && { echo "[ERROR] LINODE_ACCESS_KEY_ID missing"; exit 1; }
+[[ -z "${LINODE_SECRET_ACCESS_KEY:-}" ]] && { echo "[ERROR] LINODE_SECRET_ACCESS_KEY missing"; exit 1; }
 [[ -z "${LINODE_S3_ENDPOINT:-}"    ]] && { echo "[ERROR] LINODE_S3_ENDPOINT missing"; exit 1; }
+[[ -z "${LINODE_DEFAULT_REGION:-}" ]] && { echo "[ERROR] LINODE_DEFAULT_REGION missing"; exit 1; }
 
-: "${LINODE_DEFAULT_REGION:=us-east-1}"   # arbitrary placeholder for awscli
-
-# ── internal-only export so the AWS CLI can run; you never set AWS_* in GH Actions
+# Export so aws-cli can use them (no “dummy” region fallback).
 export AWS_ACCESS_KEY_ID="$LINODE_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$LINODE_SECRET_ACCESS_KEY"
-export AWS_DEFAULT_REGION="$LINODE_DEFAULT_REGION"
 export S3_ENDPOINT="$LINODE_S3_ENDPOINT"
 export AWS_S3_ADDRESSING_STYLE=path
 
 export PS4='[\D{%F %T}] ${BASH_SOURCE##*/}:${LINENO}: '
-set -x                                    # ultra-verbose tracing
+set -x  # ultra-verbose tracing (will show commands as they run)
 
 ###############################################################################
 # 1. Tool sanity  (jq, inotifywait, awscli)
@@ -47,7 +45,7 @@ cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 : "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
 
 echo "# sanity-check bucket access:"
-echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET}"
+echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET} --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --only-show-errors"
 if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
                --endpoint-url "$S3_ENDPOINT" \
                --region "$LINODE_DEFAULT_REGION" \
@@ -57,6 +55,7 @@ if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
 fi
 
 mkdir -p "$COMFY_DIR/models/checkpoints"
+echo "+ aws s3 sync s3://${CHECKPOINT_BUCKET}/ $COMFY_DIR/models/checkpoints/ --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --exclude '*' --include '*.safetensors' --only-show-errors --no-progress"
 aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
             "$COMFY_DIR/models/checkpoints/" \
             --endpoint-url "$S3_ENDPOINT" \
@@ -118,10 +117,12 @@ while IFS= read -r PJ; do
   mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
 
   echo "[${COUNT}/${TOTAL}] Uploading → ${S3_PREFIX}/${PID}/"
+  echo "+ aws s3 cp $OUT_DIR/${PID}.png ${S3_PREFIX}/${PID}/ --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --only-show-errors --no-progress"
   aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" \
            --endpoint-url "$S3_ENDPOINT" \
            --region "$LINODE_DEFAULT_REGION" \
            --only-show-errors --no-progress
+
   rm -f "$OUT_DIR/${PID}.png"
 done < /tmp/prompts.ndjson
 
