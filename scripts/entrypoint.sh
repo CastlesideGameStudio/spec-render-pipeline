@@ -29,6 +29,14 @@ command -v inotifywait >/dev/null || { apt-get update -qq && apt-get install -y 
 command -v aws         >/dev/null || python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32'
 
 ###############################################################################
+# 1b. Fix TorchAudio mismatch (PyTorch 12.4)
+###############################################################################
+echo "# Installing matching TorchAudio for CUDA 12.4..."
+python3 -m pip install --no-cache-dir --force-reinstall \
+  --index-url https://download.pytorch.org/whl/cu124 \
+  torchaudio==2.5.1
+
+###############################################################################
 # 2. Locate ComfyUI
 ###############################################################################
 for d in /workspace/ComfyUI /opt/ComfyUI /ComfyUI; do
