@@ -39,15 +39,15 @@ jobs:
           RUNPOD_API_KEY:        ${{ secrets.RUNPOD_API_KEY }}
 
           # S3 creds forwarded to the container
-          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION:    ${{ secrets.AWS_DEFAULT_REGION }}
+          LINODE_ACCESS_KEY_ID:     ${{ secrets.LINODE_ACCESS_KEY_ID }}
+          LINODE_SECRET_ACCESS_KEY: ${{ secrets.LINODE_SECRET_ACCESS_KEY }}
+          LINODE_DEFAULT_REGION:    ${{ secrets.LINODE_DEFAULT_REGION }}
+          LINODE_S3_ENDPOINT:       ${{ secrets.LINODE_S3_ENDPOINT }}
 
           # batch-specific settings
           PROMPT_GLOB: ${{ inputs.prompt_glob }}
           IMAGE_NAME:  ${{ inputs.image_name }}
           GPU_TYPE:    ${{ inputs.gpu_type }}
-          # only pass VOLUME_GB if user supplied a value
           VOLUME_GB:   ${{ inputs.volume_gb }}
 
         run: python scripts/launch_pod_on_demand.py

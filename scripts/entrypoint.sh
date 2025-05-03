@@ -2,15 +2,23 @@
 set -eEuo pipefail
 
 ###############################################################################
-# 0. Guard-rails & full debug
+# 0. Guard-rails, debug & Linode→AWS shim
 ###############################################################################
-[[ -z "${PROMPTS_NDJSON:-}"    ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
-[[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && { echo "[ERROR] AWS creds missing";  exit 1; }
+[[ -z "${PROMPTS_NDJSON:-}"        ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
+[[ -z "${LINODE_ACCESS_KEY_ID:-}"  ]] && { echo "[ERROR] LINODE creds missing";  exit 1; }
+[[ -z "${LINODE_SECRET_ACCESS_KEY:-}" ]] && { echo "[ERROR] LINODE creds missing";  exit 1; }
+[[ -z "${LINODE_S3_ENDPOINT:-}"    ]] && { echo "[ERROR] LINODE_S3_ENDPOINT missing"; exit 1; }
 
-: "${AWS_DEFAULT_REGION:=us-east-2}"     # default unless caller overrides
+: "${LINODE_DEFAULT_REGION:=us-east-1}"   # arbitrary placeholder for awscli
+
+# ── internal-only export so the AWS CLI can run; you never set AWS_* in GH Actions
+export AWS_ACCESS_KEY_ID="$LINODE_ACCESS_KEY_ID"
+export AWS_SECRET_ACCESS_KEY="$LINODE_SECRET_ACCESS_KEY"
+export AWS_DEFAULT_REGION="$LINODE_DEFAULT_REGION"
+export S3_ENDPOINT="$LINODE_S3_ENDPOINT"
 
 export PS4='[\D{%F %T}] ${BASH_SOURCE##*/}:${LINENO}: '
-set -x                                   # super-verbose tracing
+set -x                                    # ultra-verbose tracing
 
 ###############################################################################
 # 1. Tool sanity  (jq, inotifywait, awscli)
@@ -33,27 +41,25 @@ mkdir -p "$COMFY_DIR/flows"
 cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
 
 ###############################################################################
-# 3. Sync checkpoints from S3   (FAIL-FAST if bucket missing or no perms)
+# 3. Sync checkpoints from Linode Object Storage
 ###############################################################################
 : "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
 
-echo "# sanity-check S3 access:"
-echo "+ aws sts get-caller-identity --output text"
-aws sts get-caller-identity --output text || {
-  echo "[FATAL] Invalid AWS credentials." >&2; exit 1; }
-
-echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET} --region ${AWS_DEFAULT_REGION}"
+echo "# sanity-check bucket access:"
+echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET}"
 if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
-               --region "$AWS_DEFAULT_REGION" --only-show-errors >/dev/null 2>&1; then
-  echo "[FATAL] Cannot ListBucket on '${CHECKPOINT_BUCKET}' in region '${AWS_DEFAULT_REGION}'."
-  echo "        Grant this IAM principal s3:ListBucket + s3:GetObject and try again."
+               --endpoint-url "$S3_ENDPOINT" \
+               --region "$LINODE_DEFAULT_REGION" \
+               --only-show-errors >/dev/null 2>&1; then
+  echo "[FATAL] Cannot ListBucket on '${CHECKPOINT_BUCKET}'. Check your Linode keys."
   exit 1
 fi
 
 mkdir -p "$COMFY_DIR/models/checkpoints"
 aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
             "$COMFY_DIR/models/checkpoints/" \
-            --region "$AWS_DEFAULT_REGION" \
+            --endpoint-url "$S3_ENDPOINT" \
+            --region "$LINODE_DEFAULT_REGION" \
             --exclude "*" --include "*.safetensors" \
             --only-show-errors --no-progress
 
@@ -72,7 +78,7 @@ STAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 S3_PREFIX="s3://${SPEC_SHEET_BUCKET}/${STAMP}"
 
 echo "[INFO] Prompts : $TOTAL"
-echo "[INFO] S3 dest : $S3_PREFIX"
+echo "[INFO] Linode dest : $S3_PREFIX"
 
 ###############################################################################
 # 5. Start ComfyUI headless
@@ -80,14 +86,13 @@ echo "[INFO] S3 dest : $S3_PREFIX"
 python3 "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
         --output-directory "$OUT_DIR" &
 SERVER_PID=$!
-trap 'kill "$SERVER_PID"' EXIT      # always clean up on exit
+trap 'kill "$SERVER_PID"' EXIT
 
 until curl -s --fail --connect-timeout 2 http://localhost:8188/system_stats >/dev/null; do
   sleep 1
 done
 echo "[INFO] ComfyUI server ready."
 
-# helper: wait until a new file appears in $OUT_DIR and emit its name
 wait_new() { inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1; }
 
 ###############################################################################
@@ -113,7 +118,8 @@ while IFS= read -r PJ; do
 
   echo "[${COUNT}/${TOTAL}] Uploading → ${S3_PREFIX}/${PID}/"
   aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" \
-           --region "$AWS_DEFAULT_REGION" \
+           --endpoint-url "$S3_ENDPOINT" \
+           --region "$LINODE_DEFAULT_REGION" \
            --only-show-errors --no-progress
   rm -f "$OUT_DIR/${PID}.png"
 done < /tmp/prompts.ndjson

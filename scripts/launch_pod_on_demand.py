@@ -4,16 +4,19 @@ launch_pod_on_demand.py – spin up one On-Demand RunPod instance and stream log
 
 Required ENV
 ------------
-RUNPOD_API_KEY         – bearer token from https://runpod.io
+RUNPOD_API_KEY          – bearer token from https://runpod.io
 
 Optional (already wired through the GH workflow)
 ------------------------------------------------
-IMAGE_NAME             – container tag (default: valyriantech/comfyui-with-flux:latest)
-PROMPT_GLOB            – NDJSON pattern   (default: addendums/**/*.ndjson)
-GPU_TYPE               – GPU type id      (default: NVIDIA A40)
-VOLUME_GB              – container + volume disk (default: 120 GB)
-CONTAINER_AUTH_ID      – registry-auth for private images (omit if public)
-AWS_*                  – forwarded unchanged into the pod
+IMAGE_NAME              – container tag (default: valyriantech/comfyui-with-flux:latest)
+PROMPT_GLOB             – NDJSON pattern   (default: addendums/**/*.ndjson)
+GPU_TYPE                – GPU type id      (default: NVIDIA A40)
+VOLUME_GB               – container + volume disk (default: 120 GB)
+CONTAINER_AUTH_ID       – registry-auth for private images (omit if public)
+LINODE_ACCESS_KEY_ID    – object-storage key
+LINODE_SECRET_ACCESS_KEY– object-storage secret
+LINODE_S3_ENDPOINT      – e.g. https://us-east-1.linodeobjects.com
+LINODE_DEFAULT_REGION   – placeholder string for awscli (default: us-east-1)
 """
 
 import glob
@@ -63,11 +66,15 @@ def main() -> None:
 
     # ---------- environment forwarded into the container -------------------
     env_block = {
-        "PROMPTS_NDJSON":        gather_prompts(os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")),
-        "AWS_ACCESS_KEY_ID":     os.getenv("AWS_ACCESS_KEY_ID", ""),
-        "AWS_SECRET_ACCESS_KEY": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
-        "AWS_SESSION_TOKEN":     os.getenv("AWS_SESSION_TOKEN", ""),
-        "AWS_DEFAULT_REGION":    os.getenv("AWS_DEFAULT_REGION", "us-east-2"),
+        # ndjson merged into a single var read by entrypoint.sh
+        "PROMPTS_NDJSON": gather_prompts(os.getenv("PROMPT_GLOB",
+                                                   "addendums/**/*.ndjson")),
+
+        # ★ Linode creds only (no AWS_* names exposed anymore) ★
+        "LINODE_ACCESS_KEY_ID":     os.getenv("LINODE_ACCESS_KEY_ID", ""),
+        "LINODE_SECRET_ACCESS_KEY": os.getenv("LINODE_SECRET_ACCESS_KEY", ""),
+        "LINODE_S3_ENDPOINT":       os.getenv("LINODE_S3_ENDPOINT", ""),
+        "LINODE_DEFAULT_REGION":    os.getenv("LINODE_DEFAULT_REGION", "us-east-1"),
     }
 
     # ---------- pod creation payload --------------------------------------
@@ -86,8 +93,8 @@ def main() -> None:
                 "export DEBIAN_FRONTEND=noninteractive && "
                 "apt-get update -qq && "
                 "apt-get install -y --no-install-recommends "
-                "jq git python3-pip tzdata && "                      # ← tzdata added
-                # Fresh AWS CLI (v1.32+ → botocore 1.34+; works with urllib3 2.x)
+                "jq git python3-pip tzdata && "
+                # Fresh AWS CLI (needed to talk to Linode via S3 API)
                 "python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32' && "
                 # Clone the repo only once (safe on pod restart)
                 "[ -d /workspace/repo/.git ] || "
