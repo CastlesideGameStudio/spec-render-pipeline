@@ -98,6 +98,34 @@ if ! ls -1 "$COMFY_DIR/models/checkpoints/"*.safetensors >/dev/null 2>&1; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# ADDITIONAL CHECK: ensure each graph_BloodMagic.json (etc.) references a ckpt_name
+# that actually exists in models/checkpoints.
+# ---------------------------------------------------------------------------
+echo "# Validating that each 'CheckpointLoaderSimple' node's ckpt_name is present..."
+for FLOW_JSON in "$COMFY_DIR/flows"/graph_*.json; do
+  if [[ ! -f "$FLOW_JSON" ]]; then
+    continue  # skip if none found
+  fi
+  echo "Checking flow: $FLOW_JSON"
+  
+  # Extract every 'ckpt_name' from each CheckpointLoaderSimple node:
+  # (If no matches, jq returns nothing.)
+  while IFS= read -r CKPT; do
+    [[ -z "$CKPT" ]] && continue
+    if [[ ! -f "$COMFY_DIR/models/checkpoints/$CKPT" ]]; then
+      echo "[FATAL] Graph '$FLOW_JSON' references '$CKPT', but that file does not exist in '$COMFY_DIR/models/checkpoints/'."
+      exit 1
+    else
+      echo "  - Found checkpoint '$CKPT' for graph '$FLOW_JSON' ✓"
+    fi
+  done < <(
+    jq -r '.nodes[]? 
+             | select(.type=="CheckpointLoaderSimple") 
+             | .inputs.ckpt_name // empty' "$FLOW_JSON"
+  )
+done
+
 echo "[INFO] Graphs + checkpoints ready."
 
 ###############################################################################
