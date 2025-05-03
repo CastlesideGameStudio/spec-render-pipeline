@@ -50,12 +50,21 @@ if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
                --endpoint-url "$S3_ENDPOINT" \
                --region "$LINODE_DEFAULT_REGION" \
                --only-show-errors >/dev/null 2>&1; then
-  echo "[ERROR] Failed to access bucket '${CHECKPOINT_BUCKET}'."
-  echo "Possible reasons:"
-  echo "  - The bucket name is incorrect or doesn't exist in region '${LINODE_DEFAULT_REGION}'."
-  echo "  - Your Linode credentials lack permission to list or access the bucket."
-  echo "  - The region or endpoint is mismatched with the bucket's actual location."
-  echo "[FATAL] Exiting due to bucket access error."
+
+  echo "[ERROR] Bucket check failed for 's3://${CHECKPOINT_BUCKET}'."
+  echo "Here are some common causes and tips to fix them:"
+  echo "  • **Misspelled or non-existent bucket name**. Double-check the bucket"
+  echo "    name in your script vs. what you see if you run"
+  echo "    'aws s3 ls --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}'."
+  echo "  • **Mismatch between bucket region and endpoint**. For example, if the"
+  echo "    bucket is in Newark, but you're using 'us-ord-1.linodeobjects.com' (Chicago)."
+  echo "    You can confirm the bucket region by running:"
+  echo "      aws s3api get-bucket-location --bucket ${CHECKPOINT_BUCKET} \\"
+  echo "        --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}"
+  echo "  • **Insufficient credentials**. Your Linode key must have permissions"
+  echo "    for this bucket (list, read, etc.)."
+  echo ""
+  echo "[FATAL] Exiting due to bucket-access error."
   exit 1
 fi
 
