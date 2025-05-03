@@ -85,6 +85,12 @@ aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
             --exclude "*" --include "*.safetensors" \
             --only-show-errors --no-progress
 
+# Verify at least one .safetensors file exists:
+if ! ls -1 "$COMFY_DIR/models/checkpoints/"*.safetensors >/dev/null 2>&1; then
+  echo "[FATAL] No *.safetensors files downloaded. Did you forget to upload them?"
+  exit 1
+fi
+
 echo "[INFO] Graphs + checkpoints ready."
 
 ###############################################################################
