@@ -1,9 +1,8 @@
 {
-  "nodes": [
+  "prompt": [
     {
       "id": 1,
-      "type": "CheckpointLoaderSimple",
-      "extra_style_info": "Blood_Magic_-_Grimoire-000011",
+      "class_type": "CheckpointLoaderSimple",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "Blood_Magic_-_Grimoire-000011.safetensors"
@@ -11,7 +10,7 @@
     },
     {
       "id": 2,
-      "type": "CLIPTextEncode",
+      "class_type": "CLIPTextEncode",
       "output": "CONDITIONING",
       "inputs": {
         "text": "PLACEHOLDER_PROMPT"
@@ -19,7 +18,7 @@
     },
     {
       "id": 3,
-      "type": "KSampler",
+      "class_type": "KSampler",
       "output": "LATENT",
       "inputs": {
         "model": 1,
@@ -30,7 +29,7 @@
     },
     {
       "id": 4,
-      "type": "VAEDecode",
+      "class_type": "VAEDecode",
       "output": "IMAGE",
       "inputs": {
         "samples": 3
@@ -38,7 +37,7 @@
     },
     {
       "id": 5,
-      "type": "SaveImage",
+      "class_type": "SaveImage",
       "inputs": {
         "images": 4
       }
