@@ -1,3 +1,9 @@
+# .github/workflows/render.yml
+# ----------------------------------------------------------------------------
+# GitHub Actions workflow to launch a Qwen-3-based image-render batch job on
+# RunPod with an H100 NVL GPU and upload outputs to Linode object storage.
+# ----------------------------------------------------------------------------
+
 name: Launch Render Batch
 
 on:
@@ -11,13 +17,13 @@ on:
         default: 'pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime'
       gpu_type:
         description: GPU type for the pod
-        default: 'NVIDIA A40'
+        default: 'H100 NVL'           # upgraded from A40
       volume_gb:
         description: Disk size in GB (optional, leave blank for launcher default)
         default: ''
       model_id:
-        description: Hugging Face Diffusers model ID (e.g. modelscope/qwen-image-7b)
-        default: 'modelscope/qwen-image-7b'
+        description: Qwen-3 model ID (e.g. Qwen/Qwen3-32B)
+        default: 'Qwen/Qwen3-32B'     # upgraded from qwen-image-7b
       width:
         description: Output image width in pixels
         default: '1920'
@@ -40,12 +46,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install requests
+      - name: Install dependencies
+        run: |
+          pip install requests \
+                      "transformers>=4.51.0" \
+                      accelerate \
+                      bitsandbytes  # optional: memory-efficient 8-bit load
 
       - name: Launch On-Demand Pod
         env:
           # RunPod auth
-          RUNPOD_API_KEY:        ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
 
           # Linode object-storage creds
           LINODE_ACCESS_KEY_ID:     ${{ secrets.LINODE_ACCESS_KEY_ID }}
@@ -53,16 +64,16 @@ jobs:
           LINODE_DEFAULT_REGION:    ${{ secrets.LINODE_DEFAULT_REGION }}
           LINODE_S3_ENDPOINT:       ${{ secrets.LINODE_S3_ENDPOINT }}
 
-          # Batch settings
+          # Batch parameters
           PROMPT_GLOB:  ${{ inputs.prompt_glob }}
           IMAGE_NAME:   ${{ inputs.image_name }}
           GPU_TYPE:     ${{ inputs.gpu_type }}
           VOLUME_GB:    ${{ inputs.volume_gb }}
 
-          # Qwen-3 Diffusers settings
-          MODEL_ID:     ${{ inputs.model_id }}
-          WIDTH:        ${{ inputs.width }}
-          HEIGHT:       ${{ inputs.height }}
-          ORTHO:        ${{ inputs.orthographic }}
+          # Qwen-3 parameters
+          MODEL_ID: ${{ inputs.model_id }}
+          WIDTH:    ${{ inputs.width }}
+          HEIGHT:   ${{ inputs.height }}
+          ORTHO:    ${{ inputs.orthographic }}
 
         run: python scripts/launch_pod_on_demand.py
