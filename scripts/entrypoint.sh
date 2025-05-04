@@ -152,28 +152,38 @@ echo "[INFO] Prompts : $TOTAL"
 echo "[INFO] Linode dest : $S3_PREFIX"
 
 ###############################################################################
-# 5. Start ComfyUI headless
+# 5. Start ComfyUI headless (wait for “All startup tasks have been completed.”)
 ###############################################################################
+LOG_FILE="/tmp/comfyui_startup.log"
+MAX_WAIT=240   # seconds
+elapsed=0
+
+# Launch ComfyUI in background, pipe all stdout/stderr to LOG_FILE
 python3 "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
-        --output-directory "$OUT_DIR" &
+        --output-directory "$OUT_DIR" \
+        >"$LOG_FILE" 2>&1 &
+
 SERVER_PID=$!
 trap 'kill "$SERVER_PID"' EXIT
 
-# -- We'll wait up to 120 seconds for ComfyUI to respond on /system_stats.
-MAX_WAIT=240
-elapsed=0
+# Loop until we see the “all startup tasks” line OR exceed MAX_WAIT
+while true; do
+  # If the desired line is found in the logs, break out
+  if grep -q "All startup tasks have been completed" "$LOG_FILE"; then
+    echo "[INFO] ComfyUI server ready (startup tasks completed)."
+    break
+  fi
 
-until curl -s --fail --connect-timeout 10 http://localhost:8188/system_stats >/dev/null; do
-  sleep 5  # wait 5s between checks
+  sleep 5
   elapsed=$((elapsed + 5))
+
   if [ "$elapsed" -ge "$MAX_WAIT" ]; then
-    echo "[FATAL] ComfyUI not ready after $MAX_WAIT seconds. Possibly stuck or scanning large custom nodes."
+    echo "[FATAL] ComfyUI not ready after $MAX_WAIT seconds (never saw 'All startup tasks have been completed.')."
     exit 1
   fi
 done
 
-echo "[INFO] ComfyUI server ready."
-
+# The inotify function remains as in the original script
 wait_new() {
   inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1
 }
