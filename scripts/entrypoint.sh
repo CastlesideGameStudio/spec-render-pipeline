@@ -159,12 +159,24 @@ python3 "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
 SERVER_PID=$!
 trap 'kill "$SERVER_PID"' EXIT
 
-until curl -s --fail --connect-timeout 2 http://localhost:8188/system_stats >/dev/null; do
-  sleep 1
+# -- We'll wait up to 120 seconds for ComfyUI to respond on /system_stats.
+MAX_WAIT=240
+elapsed=0
+
+until curl -s --fail --connect-timeout 10 http://localhost:8188/system_stats >/dev/null; do
+  sleep 5  # wait 5s between checks
+  elapsed=$((elapsed + 5))
+  if [ "$elapsed" -ge "$MAX_WAIT" ]; then
+    echo "[FATAL] ComfyUI not ready after $MAX_WAIT seconds. Possibly stuck or scanning large custom nodes."
+    exit 1
+  fi
 done
+
 echo "[INFO] ComfyUI server ready."
 
-wait_new() { inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1; }
+wait_new() {
+  inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1
+}
 
 ###############################################################################
 # 6. Render loop
