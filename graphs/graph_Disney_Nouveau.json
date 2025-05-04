@@ -1,11 +1,9 @@
 {
-  "metadata": {
-    "style": "Disney_Nouveau"
-  },
   "nodes": [
     {
       "id": 1,
       "type": "CheckpointLoaderSimple",
+      "extra_style_info": "Disney_Nouveau",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "Disney_Nouveau.safetensors"

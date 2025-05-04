@@ -15,10 +15,8 @@ If no output_dir is given, defaults to "graphs/".
 Each resulting JSON file is named like: graph_<stem_of_safetensors>.json
 For example, "Disney_Nouveau.safetensors" becomes "graph_Disney_Nouveau.json".
 
-This script references each checkpoint via a 'CheckpointLoaderSimple' node
-having "ckpt_name" set to the filename, and places a "style" field inside
-a "metadata" object (rather than at the top level), to avoid issues with
-extensions that parse any extra top-level keys as invalid nodes.
+We embed the style name into node #1 under the key "extra_style_info" so that there's
+no extra top-level key (like "metadata") to confuse certain extensions.
 """
 
 import json
@@ -30,17 +28,14 @@ import sys
 SAFETENSORS_DIR = r"Y:\CastlesideGameStudio\safetensors"
 
 # Minimal template for a ComfyUI graph:
-# Note that the "style" is now nested under "metadata",
-# so there's no extra top-level key next to "nodes".
+# The first node has an additional "extra_style_info" so you can see the style.
 TEMPLATE = textwrap.dedent("""\
 {
-  "metadata": {
-    "style": "%(style)s"
-  },
   "nodes": [
     {
       "id": 1,
       "type": "CheckpointLoaderSimple",
+      "extra_style_info": "%(style)s",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "%(ckpt)s"
@@ -108,16 +103,16 @@ def main():
         ckpt_filename = safepath.name
 
         # Fill in the template
-        graph_json = TEMPLATE % {
+        graph_json_str = TEMPLATE % {
             "style": style_name,
             "ckpt":  ckpt_filename
         }
 
         # Output path: e.g. "graph_Disney_Nouveau.json"
         outpath = outdir / f"graph_{style_name}.json"
-        outpath.write_text(graph_json, encoding="utf-8")
+        outpath.write_text(graph_json_str, encoding="utf-8")
 
-        print(f"[INFO] Created {outpath} referencing '{ckpt_filename}' (metadata.style='{style_name}')")
+        print(f"[INFO] Created {outpath} referencing '{ckpt_filename}' (extra_style_info='{style_name}')")
 
     print("[INFO] Done! Generated graphs in", outdir)
 

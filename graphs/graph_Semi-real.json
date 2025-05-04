@@ -1,11 +1,9 @@
 {
-  "metadata": {
-    "style": "Semi-real"
-  },
   "nodes": [
     {
       "id": 1,
       "type": "CheckpointLoaderSimple",
+      "extra_style_info": "Semi-real",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "Semi-real.safetensors"

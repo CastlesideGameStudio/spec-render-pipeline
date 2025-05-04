@@ -1,11 +1,9 @@
 {
-  "metadata": {
-    "style": "Blood_Magic_-_Grimoire-000011"
-  },
   "nodes": [
     {
       "id": 1,
       "type": "CheckpointLoaderSimple",
+      "extra_style_info": "Blood_Magic_-_Grimoire-000011",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "Blood_Magic_-_Grimoire-000011.safetensors"

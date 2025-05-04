@@ -1,11 +1,9 @@
 {
-  "metadata": {
-    "style": "iLLMythM4gicalL1nes"
-  },
   "nodes": [
     {
       "id": 1,
       "type": "CheckpointLoaderSimple",
+      "extra_style_info": "iLLMythM4gicalL1nes",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "iLLMythM4gicalL1nes.safetensors"
