@@ -47,10 +47,10 @@ python3 -m pip install --no-cache-dir --force-reinstall \
 ###############################################################################
 echo "[INFO] Installing Qwen-3 text-to-image dependencies…"
 python3 -m pip install --no-cache-dir \
-  diffusers accelerate transformers safetensors qwen3-diffusers Pillow
+  diffusers accelerate transformers safetensors Pillow
 
 # Optional: pre-cache the model to speed up first inference
-MODEL_ID=${MODEL_ID:-modelscope/qwen-image-7b}
+MODEL_ID=${MODEL_ID:-hahahafofo/Qwen-3-text2image-diffusers}
 echo "[INFO] Pre-caching model weights for ${MODEL_ID}…"
 python3 -c "from diffusers import DiffusionPipeline; DiffusionPipeline.from_pretrained('${MODEL_ID}', torch_dtype='auto', trust_remote_code=True)"
 
