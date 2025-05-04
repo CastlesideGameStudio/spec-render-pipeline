@@ -65,4 +65,4 @@ jobs:
           HEIGHT:       ${{ inputs.height }}
           ORTHO:        ${{ inputs.orthographic }}
 
-        run: python launch_pod_on_demand.py
+        run: python scripts/launch_pod_on_demand.py
