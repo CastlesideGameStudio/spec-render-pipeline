@@ -192,39 +192,47 @@ wait_new() {
 ###############################################################################
 while IFS= read -r PJ; do
   COUNT=$((COUNT+1))
-  PID=$(jq -r '.id // empty' <<<"$PJ")
-  [[ -z "$PID" || "$PID" == null ]] && PID=$(printf "%03d" "$COUNT")
-  STYLE=$(jq -r '.style' <<<"$PJ")
-  GRAPH_JSON=$(jq -c . "$COMFY_DIR/flows/graph_${STYLE}.json")
 
-  echo "[${COUNT}/${TOTAL}] Rendering ${PID}"
+  # 1) Extract prompt ID & fallback if missing
+  PID="$(jq -r '.id // empty' <<<"$PJ")"
+  [[ -z "$PID" || "$PID" == null ]] && PID="$(printf "%03d" "$COUNT")"
 
-  # Build one single JSON object
-  PAYLOAD=$(
+  # 2) Determine which flow to use based on .style in the prompt
+  STYLE="$(jq -r '.style' <<<"$PJ")"
+  GRAPH_JSON="$(jq -c . "$COMFY_DIR/flows/graph_${STYLE}.json")"
+  if [[ -z "$GRAPH_JSON" || "$GRAPH_JSON" == null ]]; then
+    echo "[WARN] No flow found for style '$STYLE'; skipping..."
+    continue
+  fi
+
+  # 3) Build a single JSON object for this one prompt
+  PAYLOAD="$(
     jq -c \
-       --argjson g "$GRAPH_JSON" \
-       --argjson p "$PJ" \
-       '{prompt:$g, extra_data:{id:$p.id}}'
-  )
+       --argjson flow "$GRAPH_JSON" \
+       --argjson p    "$PJ" \
+       '{prompt: $flow, extra_data:{id: $p.id}}'
+  )"
 
-  # (Optional) debug: echo the final JSON once, or comment out:
-  # echo "[DEBUG] Final JSON: $PAYLOAD"
+  echo "[${COUNT}/${TOTAL}] Rendering PID='${PID}', style='${STYLE}'..."
 
-  # POST exactly one JSON object
-  curl -s -X POST -H 'Content-Type: application/json' \
-       -d "$PAYLOAD" \
+  # 4) POST the JSON to ComfyUI
+  curl -s -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" \
        http://localhost:8188/prompt >/dev/null
 
-  PNG=$(wait_new)  # inotify
-  mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
+  # 5) Wait for an output file to appear in /tmp/out
+  PNG="$(wait_new)"
 
-  echo "[${COUNT}/${TOTAL}] Uploading → ${S3_PREFIX}/${PID}/"
+  # 6) Rename & upload to s3
+  mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
+  echo "[${COUNT}/${TOTAL}] Uploading to '${S3_PREFIX}/${PID}/'..."
   aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" \
            --endpoint-url "$S3_ENDPOINT" \
            --region "$LINODE_DEFAULT_REGION" \
            --only-show-errors --no-progress
 
+  # Clean up local file
   rm -f "$OUT_DIR/${PID}.png"
+
 done < /tmp/prompts.ndjson
 
 ###############################################################################
