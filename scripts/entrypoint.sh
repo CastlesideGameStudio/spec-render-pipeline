@@ -152,23 +152,23 @@ echo "[INFO] Prompts : $TOTAL"
 echo "[INFO] Linode dest : $S3_PREFIX"
 
 ###############################################################################
-# 5. Start ComfyUI headless (wait for “All startup tasks have been completed.”)
+# 5. Start ComfyUI headless (track logs & wait for “All startup tasks” line)
 ###############################################################################
 LOG_FILE="/tmp/comfyui_startup.log"
-MAX_WAIT=240   # seconds
+MAX_WAIT=240  # seconds
 elapsed=0
 
-# Launch ComfyUI in background, pipe all stdout/stderr to LOG_FILE
+# Launch ComfyUI in the background, piping its output through `tee`.
+# This way, logs appear on console AND in $LOG_FILE for grepping.
 python3 "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
-        --output-directory "$OUT_DIR" \
-        >"$LOG_FILE" 2>&1 &
-
+        --output-directory "$OUT_DIR" 2>&1 | tee "$LOG_FILE" &
 SERVER_PID=$!
+
 trap 'kill "$SERVER_PID"' EXIT
 
-# Loop until we see the “all startup tasks” line OR exceed MAX_WAIT
+# Loop until we see the “all startup tasks have been completed” line OR exceed MAX_WAIT
 while true; do
-  # If the desired line is found in the logs, break out
+  # If we find that line in the log, break out
   if grep -q "All startup tasks have been completed" "$LOG_FILE"; then
     echo "[INFO] ComfyUI server ready (startup tasks completed)."
     break
@@ -176,7 +176,6 @@ while true; do
 
   sleep 5
   elapsed=$((elapsed + 5))
-
   if [ "$elapsed" -ge "$MAX_WAIT" ]; then
     echo "[FATAL] ComfyUI not ready after $MAX_WAIT seconds (never saw 'All startup tasks have been completed.')."
     exit 1
