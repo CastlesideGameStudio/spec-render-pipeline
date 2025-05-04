@@ -12,8 +12,7 @@ BASE      = "https://rest.runpod.io/v1"
 API_PODS  = f"{BASE}/pods"
 POLL_SEC  = 10
 
-
-# ─── helpers ───────────────────────────────────────────────────────────────
+# ─── helpers ──────────────────────────────────────────────────────────────
 def req_env(key: str) -> str:
     val = os.getenv(key)
     if not val:
@@ -26,22 +25,20 @@ def normalise_gpu(name: str) -> str:
 def image_ref() -> str:
     return os.getenv("IMAGE_NAME", "pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime")
 
-
-# ─── main ──────────────────────────────────────────────────────────────────
+# ─── main ─────────────────────────────────────────────────────────────────
 def main() -> None:
-    api_key  = req_env("RUNPOD_API_KEY")
-    region   = req_env("LINODE_DEFAULT_REGION")
-    gpu_type = normalise_gpu(os.getenv("GPU_TYPE", "NVIDIA H100 NVL"))
-    volume_gb= int(os.getenv("VOLUME_GB", "120") or 120)
-    image    = image_ref()
+    api_key   = req_env("RUNPOD_API_KEY")
+    region    = req_env("LINODE_DEFAULT_REGION")
+    gpu_type  = normalise_gpu(os.getenv("GPU_TYPE", "NVIDIA H100 NVL"))
+    volume_gb = int(os.getenv("VOLUME_GB", "120") or 120)
+    image     = image_ref()
 
-    # mandatory vars for the generator
+    # vars passed through to the container
     env_block = {
         "MODEL_ID":    req_env("MODEL_ID"),
         "PROMPT_GLOB": req_env("PROMPT_GLOB"),
         "SEED":        req_env("SEED"),
 
-        # optional run-time knobs
         "WIDTH":  os.getenv("WIDTH",  "1920"),
         "HEIGHT": os.getenv("HEIGHT", "1080"),
         "ORTHO":  os.getenv("ORTHO",  "true"),
@@ -55,8 +52,8 @@ def main() -> None:
 
     print("[DEBUG] Container ENV:")
     for k, v in env_block.items():
-        trunc = (v[:110] + "…") if len(v) > 110 else v
-        print(f"   {k} = {trunc!r}")
+        slice_ = (v[:110] + "…") if len(v) > 110 else v
+        print(f"   {k} = {slice_!r}")
 
     payload = {
         "name": "qwen3-render-on-demand",
@@ -80,8 +77,10 @@ def main() -> None:
                 # clone or reuse repo
                 "[ -d /workspace/repo/.git ] || "
                 "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && "
+                # NEW: change dir so addendums/** glob resolves
+                "cd /workspace/repo && "
                 # run deterministic generator
-                "python3 /workspace/repo/scripts/generate_qwen3.py"
+                "python3 scripts/generate_qwen3.py"
             ),
         ],
         "env": env_block,
@@ -91,15 +90,17 @@ def main() -> None:
         payload["containerRegistryAuthId"] = auth
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    print(f"[INFO] Creating pod → GPU={gpu_type}, image={image}, disk={volume_gb} GB")
-    r = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
-    if r.status_code >= 400:
-        print("[ERROR] Pod creation failed →", r.status_code, r.text); sys.exit(1)
 
-    pod_id = r.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
+    print(f"[INFO] Creating pod → GPU={gpu_type}, image={image}, disk={volume_gb} GB")
+    resp = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
+    if resp.status_code >= 400:
+        print("[ERROR] Pod creation failed →", resp.status_code, resp.text)
+        sys.exit(1)
+
+    pod_id = resp.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
     print(f"[INFO] Pod created: {pod_id}")
 
-    # ── tail logs until pod exits ─────────────────────────────────────────
+    # ── stream logs ───────────────────────────────────────────────────────
     last_log = ""
     while True:
         time.sleep(POLL_SEC)
@@ -110,7 +111,9 @@ def main() -> None:
         stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
         status = stat.json().get("status", "UNKNOWN") if stat.ok else "UNKNOWN"
         if status not in ("Pending", "Running"):
-            print(f"\n[INFO] Pod status = {status}"); break
+            print(f"\n[INFO] Pod status = {status}")
+            break
+
     print("[INFO] Log stream closed — pod finished.")
 
 if __name__ == "__main__":
