@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
 """
-Batch-generate images with **Qwen 3 multimodal** (no Diffusers).
+Deterministic batch generator for **Qwen 3 multimodal**.
 
-Required ENV (injected by GitHub workflow → RunPod)
----------------------------------------------------
-MODEL_ID       – Hugging Face model id (e.g. Qwen/Qwen3-32B)
-PROMPT_GLOB    – glob pattern for *.ndjson files (e.g. addendums/**/*.ndjson)
+Required ENV (must be non-empty)
+--------------------------------
+MODEL_ID       – e.g. "Qwen/Qwen3-32B"
+PROMPT_GLOB    – e.g. "addendums/**/*.ndjson"
+SEED           – integer; base RNG seed for reproducibility
 
 Optional ENV
 ------------
-WIDTH          – image width  (default 1920)
-HEIGHT         – image height (default 1080)
-ORTHO          – "true"/"false" → add “orthographic projection”
-
-The model streams PNG bytes directly.  Images are saved under:
-outputs/<Style>/<promptStem>_<idx>.png
+WIDTH, HEIGHT  – default 1920 × 1080
+ORTHO          – "true"/"false" (default true → orthographic)
 """
-from __future__ import annotations
 
-import glob, json, os, sys
+from __future__ import annotations
+import glob, json, os, sys, hashlib
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
@@ -27,7 +24,7 @@ import torch
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# ─── 1) Style definitions ────────────────────────────────────────────────
+# ─── 1) CONSTANTS ──────────────────────────────────────────────────────────
 STYLES: dict[str, str] = {
     "Photorealistic":    "photorealistic style, high fidelity, realistic lighting, lifelike textures",
     "Disney":            "Disney-style animation, whimsical characters, vibrant colours",
@@ -40,37 +37,46 @@ STYLES: dict[str, str] = {
     "Studio_Ghibli":     "Studio Ghibli-style soft pastel palette, whimsical detail, hand-drawn feel",
     "Line_Art":          "line-art / ink sketch, high contrast, black & white, hand-drawn lines",
 }
+VIEWS = ["front", "side", "back"]  # orthographic angles  :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
 
-# ─── 2) Helpers ───────────────────────────────────────────────────────────
-def required_env(key: str) -> str:
-    val = os.getenv(key)
-    if not val:
+# ─── 2) HELPERS ────────────────────────────────────────────────────────────
+def req(key: str) -> str:
+    v = os.getenv(key)
+    if not v:
         sys.exit(f"[ERROR] Required ENV '{key}' is missing or empty.")
-    return val
+    return v
 
 def load_prompts(pattern: str) -> List[Tuple[str, str]]:
-    prompts: List[Tuple[str, str]] = []
+    items: List[Tuple[str, str]] = []
     for path in glob.glob(pattern, recursive=True):
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
-                if not line.strip():
-                    continue
+                if not line.strip(): continue
                 data = json.loads(line)
-                text = data.get("text") or data.get("prompt")
-                if text and text.strip():
-                    prompts.append((Path(path).stem, text.strip()))
-    if not prompts:
-        sys.exit(f"[ERROR] No prompts found matching '{pattern}'.")
-    return prompts
+                txt  = data.get("text") or data.get("prompt", "")
+                if txt.strip():
+                    items.append((Path(path).stem, txt.strip()))
+    if not items:
+        sys.exit(f"[ERROR] No prompts matched '{pattern}'.")
+    return items
 
-# ─── 3) Main ──────────────────────────────────────────────────────────────
+def seed_for(base: int, style_idx: int, view_idx: int) -> int:
+    """Derive a deterministic but distinct seed for each (style, view)."""
+    return base + style_idx * 100 + view_idx
+
+# ─── 3) MAIN ───────────────────────────────────────────────────────────────
 def main() -> None:
-    model_id    = required_env("MODEL_ID")
-    prompt_glob = required_env("PROMPT_GLOB")
+    model_id    = req("MODEL_ID")
+    pattern     = req("PROMPT_GLOB")
+    base_seed   = int(req("SEED"))
 
     width       = int(os.getenv("WIDTH",  "1920"))
     height      = int(os.getenv("HEIGHT", "1080"))
-    orthographic= os.getenv("ORTHO", "true").lower() == "true"
+    ortho       = os.getenv("ORTHO", "true").lower() == "true"
+
+    # extra safety: cuBLAS reproducibility
+    if os.getenv("CUBLAS_WORKSPACE_CONFIG") is None:
+        print("[WARN] CUBLAS_WORKSPACE_CONFIG not set; results may drift on driver change.")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Loading {model_id} on {device} …")
@@ -85,43 +91,53 @@ def main() -> None:
 
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
 
-    entries = load_prompts(prompt_glob)
-    total   = len(entries) * len(STYLES)
+    entries = load_prompts(pattern)
+    total   = len(entries) * len(STYLES) * len(VIEWS)
     counter = 0
 
-    for stem, base_prompt in entries:
-        for style_name, style_desc in STYLES.items():
-            full_prompt = f"{base_prompt}, {style_desc}"
-            if orthographic:
-                full_prompt += ", orthographic projection"
-            full_prompt += f", resolution {width}×{height}"
+    for stem, subj in entries:
+        for v_idx, view in enumerate(VIEWS):
+            for s_idx, (style_name, style_desc) in enumerate(STYLES.items()):
 
-            prompt_txt = tokenizer.apply_chat_template(
-                [{"role": "user", "content": full_prompt}],
-                tokenize=False, add_generation_prompt=True, enable_thinking=False
-            )
-            inputs = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                # deterministic seed per combo
+                torch.manual_seed(seed_for(base_seed, s_idx, v_idx))
+                torch.cuda.manual_seed_all(seed_for(base_seed, s_idx, v_idx))
 
-            with torch.inference_mode():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=1,
-                    do_sample=False,
-                    return_dict_in_generate=True,
-                    output_images=True,
+                full_prompt = (
+                    f"<STYLE={style_name.lower()}> "
+                    f"<SUBJECT={subj}> "
+                    f"<VIEW={'orthographic' if ortho else 'perspective'} {view}> "
+                    f"<LIGHT=soft studio key> <BG=transparent> "
+                    f"<RES={width}×{height}>"
                 )
 
-            img = Image.open(BytesIO(outputs.images[0]))
+                prompt_txt = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": full_prompt}],
+                    tokenize=False, add_generation_prompt=True, enable_thinking=False
+                )
+                inputs = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
 
-            style_dir = out_root / style_name; style_dir.mkdir(parents=True, exist_ok=True)
-            idx = entries.index((stem, base_prompt))
-            out_path = style_dir / f"{stem}_{idx:03}.png"
-            img.save(out_path)
+                with torch.inference_mode():
+                    out = model.generate(
+                        **inputs,
+                        max_new_tokens=1,
+                        do_sample=False,   # greedy → deterministic
+                        return_dict_in_generate=True,
+                        output_images=True,
+                    )
 
-            counter += 1
-            print(f"[{counter}/{total}] Saved {style_name}/{out_path.name}")
+                img = Image.open(BytesIO(out.images[0]))
 
-    print(f"[✓] Completed: generated {counter} images across {len(STYLES)} styles.")
+                save_dir = out_root / style_name / view
+                save_dir.mkdir(parents=True, exist_ok=True)
+                idx = entries.index((stem, subj))
+                file = save_dir / f"{stem}_{idx:03}.png"
+                img.save(file)
+
+                counter += 1
+                print(f"[{counter}/{total}] Saved {style_name}/{view}/{file.name}")
+
+    print(f"[✓] All done – {counter} images ( {len(STYLES)} styles × {len(VIEWS)} views ).")
 
 if __name__ == "__main__":
     main()
