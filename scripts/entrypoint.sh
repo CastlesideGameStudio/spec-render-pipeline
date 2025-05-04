@@ -199,17 +199,26 @@ while IFS= read -r PJ; do
 
   echo "[${COUNT}/${TOTAL}] Rendering ${PID}"
 
-  PAYLOAD=$(jq -c --argjson g "$GRAPH_JSON" --argjson p "$PJ" \
-               '{prompt:$g, extra_data:{id:$p.id}}')
+  # Build one single JSON object
+  PAYLOAD=$(
+    jq -c \
+       --argjson g "$GRAPH_JSON" \
+       --argjson p "$PJ" \
+       '{prompt:$g, extra_data:{id:$p.id}}'
+  )
 
-  curl -s -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" \
+  # (Optional) debug: echo the final JSON once, or comment out:
+  # echo "[DEBUG] Final JSON: $PAYLOAD"
+
+  # POST exactly one JSON object
+  curl -s -X POST -H 'Content-Type: application/json' \
+       -d "$PAYLOAD" \
        http://localhost:8188/prompt >/dev/null
 
-  PNG=$(wait_new)
+  PNG=$(wait_new)  # inotify
   mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
 
   echo "[${COUNT}/${TOTAL}] Uploading → ${S3_PREFIX}/${PID}/"
-  echo "+ aws s3 cp $OUT_DIR/${PID}.png ${S3_PREFIX}/${PID}/ --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --only-show-errors --no-progress"
   aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" \
            --endpoint-url "$S3_ENDPOINT" \
            --region "$LINODE_DEFAULT_REGION" \
