@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """
-
 python scripts/make_default_graphs.py graphs/
 
 make_default_graphs.py
@@ -27,16 +26,15 @@ import textwrap
 import sys
 
 # Location of your *.safetensors files
-# You can also pass it via an environment variable or command line if you prefer
 SAFETENSORS_DIR = r"Y:\CastlesideGameStudio\safetensors"
 
-# Minimal template for a ComfyUI graph:
+# Minimal template for a ComfyUI graph (note "type" not "class_type"):
 TEMPLATE = textwrap.dedent("""\
 {
   "nodes": [
     {
       "id": 1,
-      "class_type": "CheckpointLoaderSimple",
+      "type": "CheckpointLoaderSimple",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "%(ckpt)s"
@@ -44,7 +42,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 2,
-      "class_type": "CLIPTextEncode",
+      "type": "CLIPTextEncode",
       "output": "CONDITIONING",
       "inputs": {
         "text": "PLACEHOLDER_PROMPT"
@@ -52,7 +50,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 3,
-      "class_type": "KSampler",
+      "type": "KSampler",
       "output": "LATENT",
       "inputs": {
         "model": 1,
@@ -63,7 +61,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 4,
-      "class_type": "VAEDecode",
+      "type": "VAEDecode",
       "output": "IMAGE",
       "inputs": {
         "samples": 3
@@ -71,7 +69,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 5,
-      "class_type": "SaveImage",
+      "type": "SaveImage",
       "inputs": {
         "images": 4
       }
