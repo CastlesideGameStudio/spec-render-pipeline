@@ -193,48 +193,49 @@ wait_new() {
 while IFS= read -r PJ; do
   COUNT=$((COUNT+1))
 
-  # 1) Extract prompt ID & fallback if missing
+  # 1) Parse JSON fields
   PID="$(jq -r '.id // empty' <<<"$PJ")"
   [[ -z "$PID" || "$PID" == null ]] && PID="$(printf "%03d" "$COUNT")"
-
-  # 2) Determine which flow to use based on .style in the prompt
   STYLE="$(jq -r '.style' <<<"$PJ")"
-  GRAPH_JSON="$(jq -c . "$COMFY_DIR/flows/graph_${STYLE}.json")"
+
+  # 2) Load the corresponding flow JSON
+  GRAPH_JSON="$(jq -c . "$COMFY_DIR/flows/graph_${STYLE}.json" 2>/dev/null || true)"
   if [[ -z "$GRAPH_JSON" || "$GRAPH_JSON" == null ]]; then
-    echo "[WARN] No flow found for style '$STYLE'; skipping..."
+    echo "[WARN] No flow for style '$STYLE'; skipping..."
     continue
   fi
 
-  # 3) Build a single JSON object for this one prompt
-  PAYLOAD="$(
-    jq -c \
-       --argjson flow "$GRAPH_JSON" \
-       --argjson p    "$PJ" \
-       '{prompt: $flow, extra_data:{id: $p.id}}'
-  )"
-
   echo "[${COUNT}/${TOTAL}] Rendering PID='${PID}', style='${STYLE}'..."
 
-  # 4) POST the JSON to ComfyUI
-  curl -s -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" \
-       http://localhost:8188/prompt >/dev/null
+  # 3) Combine the flow + prompt into a single one-line JSON
+  PAYLOAD="$(
+    jq -nc \
+       --argjson flow "$GRAPH_JSON" \
+       --argjson p "$PJ" \
+       '{prompt:$flow, extra_data:{id:$p.id}}'
+  )"
 
-  # 5) Wait for an output file to appear in /tmp/out
+  # 4) POST exactly once
+  curl -s -X POST -H 'Content-Type: application/json' \
+       -d "$PAYLOAD" \
+       http://localhost:8188/prompt >/dev/null || {
+    echo "[ERROR] Failed to POST for PID=$PID"
+    continue
+  }
+
+  # 5) Wait for a new file in /tmp/out
   PNG="$(wait_new)"
 
-  # 6) Rename & upload to s3
+  # 6) Rename + upload to Linode S3
   mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
-  echo "[${COUNT}/${TOTAL}] Uploading to '${S3_PREFIX}/${PID}/'..."
+  echo "[${COUNT}/${TOTAL}] Uploading → ${S3_PREFIX}/${PID}/"
   aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" \
            --endpoint-url "$S3_ENDPOINT" \
            --region "$LINODE_DEFAULT_REGION" \
            --only-show-errors --no-progress
 
-  # Clean up local file
   rm -f "$OUT_DIR/${PID}.png"
-
 done < /tmp/prompts.ndjson
-
 ###############################################################################
 # 7. All done
 ###############################################################################
