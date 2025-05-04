@@ -16,8 +16,9 @@ Each resulting JSON file is named like: graph_<stem_of_safetensors>.json
 For example, "Disney_Nouveau.safetensors" becomes "graph_Disney_Nouveau.json".
 
 This script references each checkpoint via a 'CheckpointLoaderSimple' node
-having "ckpt_name" set to the filename, and also stores a "style" field
-in the top-level JSON to match that filename's stem.
+having "ckpt_name" set to the filename, and places a "style" field inside
+a "metadata" object (rather than at the top level), to avoid issues with
+extensions that parse any extra top-level keys as invalid nodes.
 """
 
 import json
@@ -28,9 +29,14 @@ import sys
 # Location of your *.safetensors files
 SAFETENSORS_DIR = r"Y:\CastlesideGameStudio\safetensors"
 
-# Minimal template for a ComfyUI graph (note "type" not "class_type"):
+# Minimal template for a ComfyUI graph:
+# Note that the "style" is now nested under "metadata",
+# so there's no extra top-level key next to "nodes".
 TEMPLATE = textwrap.dedent("""\
 {
+  "metadata": {
+    "style": "%(style)s"
+  },
   "nodes": [
     {
       "id": 1,
@@ -74,8 +80,7 @@ TEMPLATE = textwrap.dedent("""\
         "images": 4
       }
     }
-  ],
-  "style": "%(style)s"
+  ]
 }
 """)
 
@@ -112,7 +117,7 @@ def main():
         outpath = outdir / f"graph_{style_name}.json"
         outpath.write_text(graph_json, encoding="utf-8")
 
-        print(f"[INFO] Created {outpath} referencing '{ckpt_filename}' (style='{style_name}')")
+        print(f"[INFO] Created {outpath} referencing '{ckpt_filename}' (metadata.style='{style_name}')")
 
     print("[INFO] Done! Generated graphs in", outdir)
 

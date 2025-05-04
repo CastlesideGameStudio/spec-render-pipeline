@@ -1,4 +1,7 @@
 {
+  "metadata": {
+    "style": "iLLMythM4gicalL1nes"
+  },
   "nodes": [
     {
       "id": 1,
@@ -42,6 +45,5 @@
         "images": 4
       }
     }
-  ],
-  "style": "iLLMythM4gicalL1nes"
+  ]
 }

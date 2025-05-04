@@ -1,4 +1,7 @@
 {
+  "metadata": {
+    "style": "Blood_Magic_-_Grimoire-000011"
+  },
   "nodes": [
     {
       "id": 1,
@@ -42,6 +45,5 @@
         "images": 4
       }
     }
-  ],
-  "style": "Blood_Magic_-_Grimoire-000011"
+  ]
 }

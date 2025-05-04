@@ -1,4 +1,7 @@
 {
+  "metadata": {
+    "style": "Semi-real"
+  },
   "nodes": [
     {
       "id": 1,
@@ -42,6 +45,5 @@
         "images": 4
       }
     }
-  ],
-  "style": "Semi-real"
+  ]
 }
