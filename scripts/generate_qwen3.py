@@ -87,6 +87,10 @@ def main() -> None:
         trust_remote_code=True,
     )
 
+    # ── detect image interface once and cache flags ──────────────────────
+    HAS_CHAT   = hasattr(model, "chat")
+    HAS_IMAGES = False                 # will be set true if generate(images=) works
+
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
     entries  = load_prompts(pattern)
     total    = len(entries) * len(STYLES) * len(VIEWS)
@@ -108,30 +112,70 @@ def main() -> None:
                     f"<RES={width}×{height}>"
                 )
 
-                # prepare chat template text → tokens
+                # build chat-template text once
                 prompt_txt = tokenizer.apply_chat_template(
                     [{"role": "user", "content": full_prompt}],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=False,
+                    tokenize=False, add_generation_prompt=True, enable_thinking=False,
                 )
-                tokens = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
 
-                # ─── Qwen-3 multimodal generate (returns list[bytes]) ───
-                with torch.inference_mode():
-                    png_list: list[bytes] = model.generate(
-                        **tokens,
-                        images=True,            # request image output
-                        max_new_tokens=1,       # no extra text
-                        temperature=0.0,        # deterministic
-                        top_p=None,
-                        top_k=None,
-                        seed=combo_seed,
-                    )
+                png_bytes: bytes | None = None
 
-                png_bytes = png_list[0]            # first (and only) image
-                img       = Image.open(BytesIO(png_bytes))
+                # ── path (1) legacy `.chat()` API ─────────────────────────
+                if HAS_CHAT:
+                    try:
+                        with torch.inference_mode():
+                            _, b64 = model.chat(
+                                tokenizer, prompt_txt,
+                                images=True, output_format="PNG",
+                                temperature=0.0, top_p=None, top_k=None,
+                                seed=combo_seed,
+                            )
+                        png_bytes = base64.b64decode(b64)
+                    except Exception as e:
+                        HAS_CHAT = False          # don’t try again
+                        print(f"[INFO] chat() not available → falling back ({e})")
 
+                # ── path (2)  mid-April `.generate(images=True)` API ──────
+                if png_bytes is None and not HAS_CHAT:
+                    tokens = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                    try:
+                        with torch.inference_mode():
+                            png_list: list[bytes] = model.generate(
+                                **tokens,
+                                images=True,
+                                max_new_tokens=1,
+                                temperature=0.0,
+                                top_p=None, top_k=None,
+                                seed=combo_seed,
+                            )
+                        png_bytes = png_list[0]
+                        HAS_IMAGES = True
+                    except ValueError:
+                        HAS_IMAGES = False        # model rejected images= flag
+
+                # ── path (3)  May build: image data embedded in text ──────
+                if png_bytes is None and not HAS_CHAT and not HAS_IMAGES:
+                    tokens = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                    with torch.inference_mode():
+                        out_ids = model.generate(
+                            **tokens,
+                            max_new_tokens=256,
+                            temperature=0.0,
+                            top_p=None, top_k=None,
+                        )
+                    txt = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+                    if "data:image/png;base64," in txt:
+                        b64 = txt.split("data:image/png;base64,", 1)[1].split()[0]
+                        try:
+                            png_bytes = base64.b64decode(b64)
+                        except binascii.Error:
+                            print(f"[WARN] Could not decode b64 for {stem}/{style_name}/{view}")
+                    else:
+                        print(f"[WARN] No image data in reply for {stem}/{style_name}/{view}")
+                        continue  # skip this variant
+
+                # ── save the PNG ──────────────────────────────────────────
+                img = Image.open(BytesIO(png_bytes))
                 save_dir = out_root / style_name / view
                 save_dir.mkdir(parents=True, exist_ok=True)
                 idx  = entries.index((stem, subj))
@@ -141,8 +185,9 @@ def main() -> None:
                 counter += 1
                 print(f"[{counter}/{total}] Saved {style_name}/{view}/{file.name}")
 
-    print(f"[✓] All done – {counter} images "
+    print(f"[✓] Completed: {counter} images "
           f"({len(STYLES)} styles × {len(VIEWS)} views).")
+
 
 if __name__ == "__main__":
     main()
