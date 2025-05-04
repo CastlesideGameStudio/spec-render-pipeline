@@ -73,9 +73,8 @@ def main() -> None:
     height = int(os.getenv("HEIGHT", "1080"))
     ortho  = os.getenv("ORTHO", "true").lower() == "true"
 
-    # extra safety: cuBLAS reproducibility
     if os.getenv("CUBLAS_WORKSPACE_CONFIG") is None:
-        print("[WARN] CUBLAS_WORKSPACE_CONFIG not set; results may drift on driver change.")
+        print("[WARN] CUBLAS_WORKSPACE_CONFIG not set; results may drift.")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Loading {model_id} on {device} …")
@@ -89,7 +88,6 @@ def main() -> None:
     )
 
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
-
     entries  = load_prompts(pattern)
     total    = len(entries) * len(STYLES) * len(VIEWS)
     counter  = 0
@@ -110,33 +108,29 @@ def main() -> None:
                     f"<RES={width}×{height}>"
                 )
 
+                # prepare chat template text → tokens
                 prompt_txt = tokenizer.apply_chat_template(
                     [{"role": "user", "content": full_prompt}],
                     tokenize=False,
                     add_generation_prompt=True,
                     enable_thinking=False,
                 )
+                tokens = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
 
-                # --- Qwen-3 chat call (returns base-64 PNG) ----------------
+                # ─── Qwen-3 multimodal generate (returns list[bytes]) ───
                 with torch.inference_mode():
-                    _, img_b64 = model.chat(
-                        tokenizer,
-                        prompt_txt,
-                        images=True,
-                        output_format="PNG",
-                        temperature=0.0,
+                    png_list: list[bytes] = model.generate(
+                        **tokens,
+                        images=True,            # request image output
+                        max_new_tokens=1,       # no extra text
+                        temperature=0.0,        # deterministic
                         top_p=None,
                         top_k=None,
                         seed=combo_seed,
                     )
 
-                try:
-                    png_bytes = base64.b64decode(img_b64)
-                except binascii.Error as e:
-                    print(f"[ERROR] Base-64 decode failed ({stem}/{style_name}/{view}): {e}")
-                    continue
-
-                img = Image.open(BytesIO(png_bytes))
+                png_bytes = png_list[0]            # first (and only) image
+                img       = Image.open(BytesIO(png_bytes))
 
                 save_dir = out_root / style_name / view
                 save_dir.mkdir(parents=True, exist_ok=True)
