@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-launch_pod_on_demand.py – spin up one On-Demand RunPod instance and stream logs.
+launch_pod_on_demand.py – spin up one On‐Demand RunPod instance and stream logs,
+running a Qwen-3 Diffusers pipeline (no ComfyUI).
 
 Required ENV
 ------------
@@ -70,20 +71,19 @@ def main() -> None:
 
     # ---------- environment forwarded into the container -------------------
     env_block = {
-        # NDJSON for entrypoint.sh
+        # NDJSON for generate_qwen3.py
         "PROMPTS_NDJSON": gather_prompts(os.getenv("PROMPT_GLOB", "addendums/**/*.ndjson")),
 
-        # ★ Linode creds only (no AWS_* in GH secrets) ★
-        "LINODE_ACCESS_KEY_ID": os.getenv("LINODE_ACCESS_KEY_ID", ""),
-        "LINODE_SECRET_ACCESS_KEY": os.getenv("LINODE_SECRET_ACCESS_KEY", ""),
-        "LINODE_S3_ENDPOINT": os.getenv("LINODE_S3_ENDPOINT", ""),
-        "LINODE_DEFAULT_REGION": region,
+        # Linode object storage creds
+        "LINODE_ACCESS_KEY_ID":    os.getenv("LINODE_ACCESS_KEY_ID", ""),
+        "LINODE_SECRET_ACCESS_KEY":os.getenv("LINODE_SECRET_ACCESS_KEY", ""),
+        "LINODE_S3_ENDPOINT":      os.getenv("LINODE_S3_ENDPOINT", ""),
+        "LINODE_DEFAULT_REGION":   region,
     }
 
     # For transparency, print the env block to logs:
     print("[DEBUG] The container will receive these environment variables:")
     for k, v in env_block.items():
-        # Redact secret values in logs if you want. For now, we just print them.
         print(f"   {k} = {v!r}")
 
     # ---------- pod creation payload --------------------------------------
@@ -99,29 +99,23 @@ def main() -> None:
             "bash",
             "-c",
             (
-                # Non-interactive package install
+                # Non‐interactive essentials
                 "export DEBIAN_FRONTEND=noninteractive && "
                 "apt-get update -qq && "
-                "apt-get install -y --no-install-recommends "
-                "jq git python3-pip tzdata && "
-                # Fresh AWS CLI (needed to talk to Linode via S3 API)
-                "python3 -m pip install --no-cache-dir --upgrade 'awscli>=1.32' && "
-                # Clone the repo only once (safe on pod restart)
+                "apt-get install -y --no-install-recommends git python3-pip tzdata && "
+                # Install Qwen-3 stack
+                "python3 -m pip install --no-cache-dir diffusers accelerate transformers safetensors qwen3-diffusers Pillow && "
+                # Clone repo if needed
                 "[ -d /workspace/repo/.git ] || "
-                "git clone --depth 1 https://github.com/CastlesideGameStudio/"
-                "spec-render-pipeline.git /workspace/repo && "
-                # Hand off to the batch script
-                "bash /workspace/repo/scripts/entrypoint.sh"
+                "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && "
+                # Run the Qwen-3 batch generator
+                "python3 /workspace/repo/scripts/generate_qwen3.py"
             ),
         ],
         "env": env_block,
     }
     if auth_id:
         payload["containerRegistryAuthId"] = auth_id
-
-    # Log the payload without secrets redacted if you want more transparency:
-    # import json
-    # print("[DEBUG] Full Pod Creation Payload:\n", json.dumps(payload, indent=2))
 
     # ---------- create the pod --------------------------------------------
     print(f"[INFO] Creating pod → GPU={gpu_type}, image={image}, disk={volume_gb} GB")

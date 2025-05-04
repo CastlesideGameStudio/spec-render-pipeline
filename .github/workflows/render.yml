@@ -6,19 +6,28 @@ on:
       prompt_glob:
         description: NDJSON files to include in this batch
         default: 'addendums/**/*.ndjson'
-
       image_name:
         description: Container image tag
-        # Use the community flux-based image by default
-        default: 'valyriantech/comfyui-with-flux:latest'
-
+        default: 'runpod/pytorch:2.1-cuda11.8-devel-ubuntu22.04'
       gpu_type:
         description: GPU type for the pod
         default: 'NVIDIA A40'
-
       volume_gb:
         description: Disk size in GB (optional, leave blank for launcher default)
         default: ''
+      model_id:
+        description: Hugging Face Diffusers model ID (e.g. modelscope/qwen-image-7b)
+        default: 'modelscope/qwen-image-7b'
+      width:
+        description: Output image width in pixels
+        default: '1920'
+      height:
+        description: Output image height in pixels
+        default: '1080'
+      orthographic:
+        description: Use orthographic projection?
+        type: boolean
+        default: true
 
 jobs:
   render:
@@ -38,16 +47,22 @@ jobs:
           # RunPod auth
           RUNPOD_API_KEY:        ${{ secrets.RUNPOD_API_KEY }}
 
-          # S3 creds forwarded to the container
+          # Linode object-storage creds
           LINODE_ACCESS_KEY_ID:     ${{ secrets.LINODE_ACCESS_KEY_ID }}
           LINODE_SECRET_ACCESS_KEY: ${{ secrets.LINODE_SECRET_ACCESS_KEY }}
           LINODE_DEFAULT_REGION:    ${{ secrets.LINODE_DEFAULT_REGION }}
           LINODE_S3_ENDPOINT:       ${{ secrets.LINODE_S3_ENDPOINT }}
 
-          # batch-specific settings
-          PROMPT_GLOB: ${{ inputs.prompt_glob }}
-          IMAGE_NAME:  ${{ inputs.image_name }}
-          GPU_TYPE:    ${{ inputs.gpu_type }}
-          VOLUME_GB:   ${{ inputs.volume_gb }}
+          # Batch settings
+          PROMPT_GLOB:  ${{ inputs.prompt_glob }}
+          IMAGE_NAME:   ${{ inputs.image_name }}
+          GPU_TYPE:     ${{ inputs.gpu_type }}
+          VOLUME_GB:    ${{ inputs.volume_gb }}
 
-        run: python scripts/launch_pod_on_demand.py
+          # Qwen-3 Diffusers settings
+          MODEL_ID:     ${{ inputs.model_id }}
+          WIDTH:        ${{ inputs.width }}
+          HEIGHT:       ${{ inputs.height }}
+          ORTHO:        ${{ inputs.orthographic }}
+
+        run: python launch_pod_on_demand.py

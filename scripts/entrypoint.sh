@@ -4,20 +4,19 @@ set -eEuo pipefail
 ###############################################################################
 # 0. Guard-rails, debug & Linode→AWS shim
 ###############################################################################
-[[ -z "${PROMPTS_NDJSON:-}"        ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
-[[ -z "${LINODE_ACCESS_KEY_ID:-}"  ]] && { echo "[ERROR] LINODE_ACCESS_KEY_ID missing"; exit 1; }
+[[ -z "${PROMPTS_NDJSON:-}"           ]] && { echo "[ERROR] PROMPTS_NDJSON empty"; exit 1; }
+[[ -z "${LINODE_ACCESS_KEY_ID:-}"     ]] && { echo "[ERROR] LINODE_ACCESS_KEY_ID missing"; exit 1; }
 [[ -z "${LINODE_SECRET_ACCESS_KEY:-}" ]] && { echo "[ERROR] LINODE_SECRET_ACCESS_KEY missing"; exit 1; }
-[[ -z "${LINODE_S3_ENDPOINT:-}"    ]] && { echo "[ERROR] LINODE_S3_ENDPOINT missing"; exit 1; }
-[[ -z "${LINODE_DEFAULT_REGION:-}" ]] && { echo "[ERROR] LINODE_DEFAULT_REGION missing"; exit 1; }
+[[ -z "${LINODE_S3_ENDPOINT:-}"       ]] && { echo "[ERROR] LINODE_S3_ENDPOINT missing"; exit 1; }
+[[ -z "${LINODE_DEFAULT_REGION:-}"    ]] && { echo "[ERROR] LINODE_DEFAULT_REGION missing"; exit 1; }
 
-# Export so aws-cli can use them (no “dummy” region fallback).
 export AWS_ACCESS_KEY_ID="$LINODE_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$LINODE_SECRET_ACCESS_KEY"
 export S3_ENDPOINT="$LINODE_S3_ENDPOINT"
 export AWS_S3_ADDRESSING_STYLE=path
 
 export PS4='[\D{%F %T}] ${BASH_SOURCE##*/}:${LINENO}: '
-set -x  # ultra-verbose tracing (will show commands as they run)
+set -x
 
 ###############################################################################
 # 1. Tool sanity  (jq, inotifywait, awscli)
@@ -37,104 +36,25 @@ python3 -m pip install --no-cache-dir --force-reinstall \
   torchaudio==2.5.1
 
 ###############################################################################
-# 2. Locate ComfyUI
+# 2. Verify Qwen-3 generator script
 ###############################################################################
-for d in /workspace/ComfyUI /opt/ComfyUI /ComfyUI; do
-  [[ -d "$d" ]] && { COMFY_DIR="$d"; break; }
-done
-[[ -d "${COMFY_DIR:-}" ]] || { echo "[ERROR] ComfyUI directory not found"; exit 1; }
-
-mkdir -p "$COMFY_DIR/flows"
-cp /workspace/repo/graphs/*.json "$COMFY_DIR/flows/" 2>/dev/null || true
+[[ -f "/workspace/repo/scripts/generate_qwen3.py" ]] || {
+  echo "[ERROR] /workspace/repo/scripts/generate_qwen3.py not found"; exit 1;
+}
 
 ###############################################################################
-# 3. Sync checkpoints from Linode Object Storage
+# 3. Install Qwen-3 text→image dependencies
 ###############################################################################
-: "${CHECKPOINT_BUCKET:=castlesidegamestudio-checkpoints}"
+echo "[INFO] Installing Qwen-3 text-to-image dependencies…"
+python3 -m pip install --no-cache-dir \
+  diffusers accelerate transformers safetensors qwen3-diffusers Pillow
 
-echo "# sanity-check bucket access:"
-echo "+ aws s3 ls s3://${CHECKPOINT_BUCKET} --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}'"
+# Optional: pre-cache the model to speed up first inference
+MODEL_ID=${MODEL_ID:-modelscope/qwen-image-7b}
+echo "[INFO] Pre-caching model weights for ${MODEL_ID}…"
+python3 -c "from diffusers import DiffusionPipeline; DiffusionPipeline.from_pretrained('${MODEL_ID}', torch_dtype='auto', trust_remote_code=True)"
 
-if ! aws s3 ls "s3://${CHECKPOINT_BUCKET}" \
-               --endpoint-url "$S3_ENDPOINT" \
-               --region "$LINODE_DEFAULT_REGION" >/dev/null 2>&1; then
-
-  echo "[ERROR] Bucket check failed for 's3://${CHECKPOINT_BUCKET}'."
-  echo
-  echo "Here are some common causes and tips to fix them:"
-  echo "  • **Misspelled or non-existent bucket name**."
-  echo "    Double-check the bucket name in your script vs. what you see if you run:"
-  echo "      aws s3 ls --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}"
-  echo
-  echo "  • **Mismatch between bucket region and endpoint**."
-  echo "    For example, if the bucket is in Newark (us-east-1.linodeobjects.com),"
-  echo "    but you're using us-ord-1.linodeobjects.com (Chicago). You can confirm"
-  echo "    the bucket's location by running:"
-  echo "      aws s3api get-bucket-location --bucket ${CHECKPOINT_BUCKET} \\"
-  echo "        --endpoint-url ${S3_ENDPOINT} --region ${LINODE_DEFAULT_REGION}"
-  echo
-  echo "  • **Insufficient credentials**."
-  echo "    Your Linode key must have permissions for this bucket (list, read, etc.)."
-  echo
-  echo "Tip: To see the CLI's exact error message, remove '--only-show-errors' or run"
-  echo "the same 'aws s3 ls' command manually without redirecting to /dev/null."
-  echo
-  echo "[FATAL] Exiting due to bucket-access error."
-  exit 1
-fi
-
-mkdir -p "$COMFY_DIR/models/checkpoints"
-echo "+ aws s3 sync s3://${CHECKPOINT_BUCKET}/ $COMFY_DIR/models/checkpoints/ --endpoint-url '${S3_ENDPOINT}' --region '${LINODE_DEFAULT_REGION}' --exclude '*' --include '*.safetensors' --only-show-errors --no-progress"
-
-aws s3 sync "s3://${CHECKPOINT_BUCKET}/" \
-            "$COMFY_DIR/models/checkpoints/" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --region "$LINODE_DEFAULT_REGION" \
-            --exclude "*" --include "*.safetensors" \
-            --only-show-errors --no-progress
-
-# Debug: Show what actually got synced
-echo "# After syncing, here are all files in $COMFY_DIR/models/checkpoints:"
-find "$COMFY_DIR/models/checkpoints" -type f
-
-echo "# Specifically, here are any *.safetensors files:"
-ls -lah "$COMFY_DIR/models/checkpoints/"*.safetensors || echo "[INFO] No *.safetensors found."
-
-# Verify at least one .safetensors file exists:
-if ! ls -1 "$COMFY_DIR/models/checkpoints/"*.safetensors >/dev/null 2>&1; then
-  echo "[FATAL] No *.safetensors files downloaded. Did you forget to upload them?"
-  exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# ADDITIONAL CHECK: ensure each graph_BloodMagic.json (etc.) references a ckpt_name
-# that actually exists in models/checkpoints.
-# ---------------------------------------------------------------------------
-echo "# Validating that each 'CheckpointLoaderSimple' node's ckpt_name is present..."
-for FLOW_JSON in "$COMFY_DIR/flows"/graph_*.json; do
-  if [[ ! -f "$FLOW_JSON" ]]; then
-    continue  # skip if none found
-  fi
-  echo "Checking flow: $FLOW_JSON"
-  
-  # Extract every 'ckpt_name' from each CheckpointLoaderSimple node:
-  # (If no matches, jq returns nothing.)
-  while IFS= read -r CKPT; do
-    [[ -z "$CKPT" ]] && continue
-    if [[ ! -f "$COMFY_DIR/models/checkpoints/$CKPT" ]]; then
-      echo "[FATAL] Graph '$FLOW_JSON' references '$CKPT', but that file does not exist in '$COMFY_DIR/models/checkpoints/'."
-      exit 1
-    else
-      echo "  - Found checkpoint '$CKPT' for graph '$FLOW_JSON' ✓"
-    fi
-  done < <(
-    jq -r '.nodes[]? 
-             | select(.type=="CheckpointLoaderSimple") 
-             | .inputs.ckpt_name // empty' "$FLOW_JSON"
-  )
-done
-
-echo "[INFO] Graphs + checkpoints ready."
+echo "[INFO] Qwen-3 dependencies installed and model cached."
 
 ###############################################################################
 # 4. Prompt file & output dir
@@ -143,136 +63,29 @@ OUT_DIR=/tmp/out
 mkdir -p /tmp && printf '%s\n' "$PROMPTS_NDJSON" > /tmp/prompts.ndjson
 rm -rf "$OUT_DIR" && mkdir -p "$OUT_DIR"
 
-TOTAL=$(wc -l < /tmp/prompts.ndjson); COUNT=0
+TOTAL=$(wc -l < /tmp/prompts.ndjson)
 STAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 : "${SPEC_SHEET_BUCKET:=castlesidegamestudio-spec-sheets}"
 S3_PREFIX="s3://${SPEC_SHEET_BUCKET}/${STAMP}"
 
-echo "[INFO] Prompts : $TOTAL"
-echo "[INFO] Linode dest : $S3_PREFIX"
+echo "[INFO] Prompts: $TOTAL"
+echo "[INFO] Destination: $S3_PREFIX"
 
 ###############################################################################
-# 5. Start ComfyUI headless (track logs & wait for “All startup tasks” line)
+# 5. Run Qwen-3 image generation
 ###############################################################################
-LOG_FILE="/tmp/comfyui_startup.log"
-MAX_WAIT=240  # seconds
-elapsed=0
-
-# Launch ComfyUI in the background, piping its output through `tee`.
-# This way, logs appear on console AND in $LOG_FILE for grepping.
-python3 "$COMFY_DIR/main.py" --dont-print-server --listen 0.0.0.0 --port 8188 \
-        --output-directory "$OUT_DIR" 2>&1 | tee "$LOG_FILE" &
-SERVER_PID=$!
-
-trap 'kill "$SERVER_PID"' EXIT
-
-# Loop until we see the “all startup tasks have been completed” line OR exceed MAX_WAIT
-while true; do
-  # If we find that line in the log, break out
-  if grep -q "All startup tasks have been completed" "$LOG_FILE"; then
-    echo "[INFO] ComfyUI server ready (startup tasks completed)."
-    break
-  fi
-
-  sleep 5
-  elapsed=$((elapsed + 5))
-  if [ "$elapsed" -ge "$MAX_WAIT" ]; then
-    echo "[FATAL] ComfyUI not ready after $MAX_WAIT seconds (never saw 'All startup tasks have been completed.')."
-    exit 1
-  fi
-done
-
-# The inotify function remains as in the original script
-wait_new() {
-  inotifywait -q -e create --format '%f' "$OUT_DIR" | head -n1
-}
+echo "[INFO] Launching Qwen-3 Diffusers batch render…"
+python3 /workspace/repo/scripts/generate_qwen3.py
+echo "[✓] Qwen-3 batch render complete."
 
 ###############################################################################
-# 6. Render loop: For each NDJSON line => generate an image for each flow
+# 6. Upload results
 ###############################################################################
-FLOW_FILES=( "$COMFY_DIR"/flows/graph_*.json )
-if [[ "${#FLOW_FILES[@]}" -eq 0 ]]; then
-  echo "[WARN] No graph_*.json flow files found in '$COMFY_DIR/flows'!"
-  echo "[WARN] Nothing to render."
-  exit 0
-fi
-
-while IFS= read -r CHARACTER_JSON; do
-
-  # Parse just enough fields for naming/logging.
-  CHAR_ID="$(jq -r '.id // empty' <<<"$CHARACTER_JSON")"
-  [[ -z "$CHAR_ID" || "$CHAR_ID" == null ]] && CHAR_ID="char-$(date +%s)"
-
-  echo "=== Character: $CHAR_ID ==="
-
-  # For each flow (style), run ComfyUI
-  for FLOW_JSON_PATH in "${FLOW_FILES[@]}"; do
-    # Safely skip if no actual file
-    [[ ! -f "$FLOW_JSON_PATH" ]] && continue
-
-    # Derive a style name from the JSON (or from the filename).
-    #  1) If the flow JSON itself has a top-level "style" property, we can parse it:
-    STYLE_NAME="$(jq -r '.style // empty' "$FLOW_JSON_PATH")"
-
-    #  2) Fallback if it's blank or missing:
-    if [[ -z "$STYLE_NAME" || "$STYLE_NAME" == null ]]; then
-      # For example: "graph_Disney.json" => style "Disney"
-      BASENAME="$(basename "$FLOW_JSON_PATH")"
-      STYLE_NAME="${BASENAME#graph_}"          # remove "graph_"
-      STYLE_NAME="${STYLE_NAME%.*}"            # remove .json
-    fi
-
-    # 3) Grab the flow (entire JSON) in string form
-    FLOW_JSON="$(jq -c . "$FLOW_JSON_PATH")"
-    if [[ -z "$FLOW_JSON" || "$FLOW_JSON" == null ]]; then
-      echo "[WARN] Could not parse $FLOW_JSON_PATH => skipping."
-      continue
-    fi
-
-    # Build the final ID (character + style)
-    RENDER_ID="${CHAR_ID}-${STYLE_NAME}"
-
-    echo "[RUN] $RENDER_ID ..."
-
-    # Create the combined request payload:
-    #  - "prompt" => the flow
-    #  - "extra_data" => the NDJSON line (character JSON)
-    PAYLOAD="$(jq -nc \
-      --argjson flow "$FLOW_JSON" \
-      --argjson char "$CHARACTER_JSON" \
-      '{ prompt: $flow, extra_data: $char }'
-    )"
-
-    # POST to ComfyUI
-    curl -s -X POST -H 'Content-Type: application/json' \
-         -d "$PAYLOAD" \
-         http://localhost:8188/prompt \
-       >/dev/null || {
-      echo "[ERROR] POST failed for $RENDER_ID"
-      continue
-    }
-
-    # Wait for new file in $OUT_DIR
-    PNG="$(wait_new)"
-    [[ -z "$PNG" ]] && {
-      echo "[ERROR] No new image file found for $RENDER_ID"
-      continue
-    }
-
-    # Rename => upload => remove
-    mv "$OUT_DIR/$PNG" "$OUT_DIR/${RENDER_ID}.png"
-    echo "Uploading → ${S3_PREFIX}/${RENDER_ID}/"
-    aws s3 cp "$OUT_DIR/${RENDER_ID}.png" "${S3_PREFIX}/${RENDER_ID}/" \
-             --endpoint-url "$S3_ENDPOINT" \
-             --region "$LINODE_DEFAULT_REGION" \
-             --only-show-errors --no-progress
-    rm -f "$OUT_DIR/${RENDER_ID}.png"
-
-  done  # end for FLOW_FILES
-
-  echo "=== Done rendering all flows for $CHAR_ID ==="
-
-done < /tmp/prompts.ndjson
+echo "[INFO] Uploading outputs to S3…"
+aws s3 sync "$OUT_DIR/" "$S3_PREFIX/" \
+    --endpoint-url "$S3_ENDPOINT" \
+    --region "$LINODE_DEFAULT_REGION" \
+    --only-show-errors --no-progress
 
 ###############################################################################
 # 7. All done
