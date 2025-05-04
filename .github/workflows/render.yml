@@ -8,7 +8,7 @@ on:
         default: 'addendums/**/*.ndjson'
       image_name:
         description: Container image tag
-        default: 'runpod/pytorch:2.1-cuda11.8-devel-ubuntu22.04'
+        default: 'pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime'
       gpu_type:
         description: GPU type for the pod
         default: 'NVIDIA A40'
