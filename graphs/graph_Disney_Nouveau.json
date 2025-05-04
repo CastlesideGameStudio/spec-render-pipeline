@@ -1,0 +1,47 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "class_type": "CheckpointLoaderSimple",
+      "output": "MODEL",
+      "inputs": {
+        "ckpt_name": "Disney_Nouveau.safetensors"
+      }
+    },
+    {
+      "id": 2,
+      "class_type": "CLIPTextEncode",
+      "output": "CONDITIONING",
+      "inputs": {
+        "text": "PLACEHOLDER_PROMPT"
+      }
+    },
+    {
+      "id": 3,
+      "class_type": "KSampler",
+      "output": "LATENT",
+      "inputs": {
+        "model": 1,
+        "cond": 2,
+        "steps": 20,
+        "cfg": 7
+      }
+    },
+    {
+      "id": 4,
+      "class_type": "VAEDecode",
+      "output": "IMAGE",
+      "inputs": {
+        "samples": 3
+      }
+    },
+    {
+      "id": 5,
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": 4
+      }
+    }
+  ],
+  "style": "Disney_Nouveau"
+}

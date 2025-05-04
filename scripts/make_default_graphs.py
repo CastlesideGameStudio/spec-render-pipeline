@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
+
+python scripts/make_default_graphs.py graphs/
+
 make_default_graphs.py
 
-Generates one ComfyUI JSON workflow per style, referencing the .safetensors
-file for each style's checkpoint.
+Scans a directory (default Y:\\CastlesideGameStudio\\safetensors) for all *.safetensors
+files and generates one ComfyUI JSON workflow per file.
 
 Usage:
   python make_default_graphs.py [output_dir]
 
 If no output_dir is given, defaults to "graphs/".
 
-Example styles:
-  • BloodMagic   -> "Blood_Magic_-_Grimoire-000011.safetensors"
-  • Disney       -> "Disney_Nouveau.safetensors"
-  • MagicalLines -> "iLLMythM4gicalL1nes.safetensors"
+Each resulting JSON file is named like: graph_<stem_of_safetensors>.json
+For example, "Disney_Nouveau.safetensors" becomes "graph_Disney_Nouveau.json".
+
+This script references each checkpoint via a 'CheckpointLoaderSimple' node
+having "ckpt_name" set to the filename, and also stores a "style" field
+in the top-level JSON to match that filename's stem.
 """
 
 import json
@@ -21,13 +26,17 @@ import pathlib
 import textwrap
 import sys
 
-# Minimal template for a ComfyUI graph with a CheckpointLoaderSimple node
+# Location of your *.safetensors files
+# You can also pass it via an environment variable or command line if you prefer
+SAFETENSORS_DIR = r"Y:\CastlesideGameStudio\safetensors"
+
+# Minimal template for a ComfyUI graph:
 TEMPLATE = textwrap.dedent("""\
 {
   "nodes": [
     {
       "id": 1,
-      "type": "CheckpointLoaderSimple",
+      "class_type": "CheckpointLoaderSimple",
       "output": "MODEL",
       "inputs": {
         "ckpt_name": "%(ckpt)s"
@@ -35,7 +44,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 2,
-      "type": "CLIPTextEncode",
+      "class_type": "CLIPTextEncode",
       "output": "CONDITIONING",
       "inputs": {
         "text": "PLACEHOLDER_PROMPT"
@@ -43,7 +52,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 3,
-      "type": "KSampler",
+      "class_type": "KSampler",
       "output": "LATENT",
       "inputs": {
         "model": 1,
@@ -54,7 +63,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 4,
-      "type": "VAEDecode",
+      "class_type": "VAEDecode",
       "output": "IMAGE",
       "inputs": {
         "samples": 3
@@ -62,7 +71,7 @@ TEMPLATE = textwrap.dedent("""\
     },
     {
       "id": 5,
-      "type": "SaveImage",
+      "class_type": "SaveImage",
       "inputs": {
         "images": 4
       }
@@ -72,29 +81,40 @@ TEMPLATE = textwrap.dedent("""\
 }
 """)
 
-# Map each style to the .safetensors checkpoint filename.
-CKPTS = {
-    "BloodMagic":   "Blood_Magic_-_Grimoire-000011.safetensors",
-    "Disney":       "Disney_Nouveau.safetensors",
-    "MagicalLines": "iLLMythM4gicalL1nes.safetensors",
-}
-
 def main():
-    # Determine output directory from command-line arg or default to 'graphs'
+    # Output directory from command-line argument, else "graphs/"
     if len(sys.argv) > 1:
         outdir = pathlib.Path(sys.argv[1])
     else:
         outdir = pathlib.Path("graphs")
-
-    # Make sure the output directory exists
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Create a ComfyUI workflow file for each style
-    for style, ckpt_filename in CKPTS.items():
-        graph_json = TEMPLATE % {"style": style, "ckpt": ckpt_filename}
-        outpath = outdir / f"graph_{style}.json"
+    # Path to your safetensors directory
+    safedir = pathlib.Path(SAFETENSORS_DIR)
+
+    # Find all *.safetensors
+    safetensors_list = sorted(safedir.glob("*.safetensors"))
+    if not safetensors_list:
+        print(f"[WARNING] No .safetensors found in: {safedir}")
+        return
+
+    for safepath in safetensors_list:
+        # style is derived from the stem of the file (minus extension)
+        style_name = safepath.stem
+        # filename only (no directories)
+        ckpt_filename = safepath.name
+
+        # Fill in the template
+        graph_json = TEMPLATE % {
+            "style": style_name,
+            "ckpt":  ckpt_filename
+        }
+
+        # Output path: e.g. "graph_Disney_Nouveau.json"
+        outpath = outdir / f"graph_{style_name}.json"
         outpath.write_text(graph_json, encoding="utf-8")
-        print(f"[INFO] Wrote {outpath} using checkpoint '{ckpt_filename}'")
+
+        print(f"[INFO] Created {outpath} referencing '{ckpt_filename}' (style='{style_name}')")
 
     print("[INFO] Done! Generated graphs in", outdir)
 
