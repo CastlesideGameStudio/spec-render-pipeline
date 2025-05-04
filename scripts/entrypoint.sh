@@ -188,54 +188,92 @@ wait_new() {
 }
 
 ###############################################################################
-# 6. Render loop
+# 6. Render loop: For each NDJSON line => generate an image for each flow
 ###############################################################################
-while IFS= read -r PJ; do
-  COUNT=$((COUNT+1))
+FLOW_FILES=( "$COMFY_DIR"/flows/graph_*.json )
+if [[ "${#FLOW_FILES[@]}" -eq 0 ]]; then
+  echo "[WARN] No graph_*.json flow files found in '$COMFY_DIR/flows'!"
+  echo "[WARN] Nothing to render."
+  exit 0
+fi
 
-  # 1) Parse JSON fields
-  PID="$(jq -r '.id // empty' <<<"$PJ")"
-  [[ -z "$PID" || "$PID" == null ]] && PID="$(printf "%03d" "$COUNT")"
-  STYLE="$(jq -r '.style' <<<"$PJ")"
+while IFS= read -r CHARACTER_JSON; do
 
-  # 2) Load the corresponding flow JSON
-  GRAPH_JSON="$(jq -c . "$COMFY_DIR/flows/graph_${STYLE}.json" 2>/dev/null || true)"
-  if [[ -z "$GRAPH_JSON" || "$GRAPH_JSON" == null ]]; then
-    echo "[WARN] No flow for style '$STYLE'; skipping..."
-    continue
-  fi
+  # Parse just enough fields for naming/logging.
+  CHAR_ID="$(jq -r '.id // empty' <<<"$CHARACTER_JSON")"
+  [[ -z "$CHAR_ID" || "$CHAR_ID" == null ]] && CHAR_ID="char-$(date +%s)"
 
-  echo "[${COUNT}/${TOTAL}] Rendering PID='${PID}', style='${STYLE}'..."
+  echo "=== Character: $CHAR_ID ==="
 
-  # 3) Combine the flow + prompt into a single one-line JSON
-  PAYLOAD="$(
-    jq -nc \
-       --argjson flow "$GRAPH_JSON" \
-       --argjson p "$PJ" \
-       '{prompt:$flow, extra_data:{id:$p.id}}'
-  )"
+  # For each flow (style), run ComfyUI
+  for FLOW_JSON_PATH in "${FLOW_FILES[@]}"; do
+    # Safely skip if no actual file
+    [[ ! -f "$FLOW_JSON_PATH" ]] && continue
 
-  # 4) POST exactly once
-  curl -s -X POST -H 'Content-Type: application/json' \
-       -d "$PAYLOAD" \
-       http://localhost:8188/prompt >/dev/null || {
-    echo "[ERROR] Failed to POST for PID=$PID"
-    continue
-  }
+    # Derive a style name from the JSON (or from the filename).
+    #  1) If the flow JSON itself has a top-level "style" property, we can parse it:
+    STYLE_NAME="$(jq -r '.style // empty' "$FLOW_JSON_PATH")"
 
-  # 5) Wait for a new file in /tmp/out
-  PNG="$(wait_new)"
+    #  2) Fallback if it's blank or missing:
+    if [[ -z "$STYLE_NAME" || "$STYLE_NAME" == null ]]; then
+      # For example: "graph_Disney.json" => style "Disney"
+      BASENAME="$(basename "$FLOW_JSON_PATH")"
+      STYLE_NAME="${BASENAME#graph_}"          # remove "graph_"
+      STYLE_NAME="${STYLE_NAME%.*}"            # remove .json
+    fi
 
-  # 6) Rename + upload to Linode S3
-  mv "$OUT_DIR/$PNG" "$OUT_DIR/${PID}.png"
-  echo "[${COUNT}/${TOTAL}] Uploading → ${S3_PREFIX}/${PID}/"
-  aws s3 cp "$OUT_DIR/${PID}.png" "${S3_PREFIX}/${PID}/" \
-           --endpoint-url "$S3_ENDPOINT" \
-           --region "$LINODE_DEFAULT_REGION" \
-           --only-show-errors --no-progress
+    # 3) Grab the flow (entire JSON) in string form
+    FLOW_JSON="$(jq -c . "$FLOW_JSON_PATH")"
+    if [[ -z "$FLOW_JSON" || "$FLOW_JSON" == null ]]; then
+      echo "[WARN] Could not parse $FLOW_JSON_PATH => skipping."
+      continue
+    fi
 
-  rm -f "$OUT_DIR/${PID}.png"
+    # Build the final ID (character + style)
+    RENDER_ID="${CHAR_ID}-${STYLE_NAME}"
+
+    echo "[RUN] $RENDER_ID ..."
+
+    # Create the combined request payload:
+    #  - "prompt" => the flow
+    #  - "extra_data" => the NDJSON line (character JSON)
+    PAYLOAD="$(jq -nc \
+      --argjson flow "$FLOW_JSON" \
+      --argjson char "$CHARACTER_JSON" \
+      '{ prompt: $flow, extra_data: $char }'
+    )"
+
+    # POST to ComfyUI
+    curl -s -X POST -H 'Content-Type: application/json' \
+         -d "$PAYLOAD" \
+         http://localhost:8188/prompt \
+       >/dev/null || {
+      echo "[ERROR] POST failed for $RENDER_ID"
+      continue
+    }
+
+    # Wait for new file in $OUT_DIR
+    PNG="$(wait_new)"
+    [[ -z "$PNG" ]] && {
+      echo "[ERROR] No new image file found for $RENDER_ID"
+      continue
+    }
+
+    # Rename => upload => remove
+    mv "$OUT_DIR/$PNG" "$OUT_DIR/${RENDER_ID}.png"
+    echo "Uploading → ${S3_PREFIX}/${RENDER_ID}/"
+    aws s3 cp "$OUT_DIR/${RENDER_ID}.png" "${S3_PREFIX}/${RENDER_ID}/" \
+             --endpoint-url "$S3_ENDPOINT" \
+             --region "$LINODE_DEFAULT_REGION" \
+             --only-show-errors --no-progress
+    rm -f "$OUT_DIR/${RENDER_ID}.png"
+
+  done  # end for FLOW_FILES
+
+  echo "=== Done rendering all flows for $CHAR_ID ==="
+
 done < /tmp/prompts.ndjson
+
 ###############################################################################
 # 7. All done
 ###############################################################################
