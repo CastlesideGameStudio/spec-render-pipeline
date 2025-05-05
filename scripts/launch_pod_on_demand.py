@@ -61,29 +61,20 @@ def main() -> None:
         "export DEBIAN_FRONTEND=noninteractive && "
         "apt-get update -qq && "
         "apt-get install -y --no-install-recommends git python3-pip tzdata && "
-
-        # 1 ─ Pin Torch/TorchVision first (cu118 wheels)
+        # 1 ─ pin Torch/TorchVision
         "python3 -m pip install --no-cache-dir --upgrade "
         "--extra-index-url https://download.pytorch.org/whl/cu118 "
         "torch==2.3.0+cu118 torchvision==0.18.0+cu118 && "
-
-        # 2 ─ Core libs *without* dependency resolution (prevents Torch upgrade)
+        # 2 ─ core libs (no deps)
         "python3 -m pip install --no-cache-dir --upgrade --no-deps "
         "diffusers==0.33.1 transformers==4.51.3 accelerate==0.27.2 "
         "pillow==10.3.0 safetensors==0.5.3 && "
-
-        # 3 ─ (Optional) xformers build that matches Torch 2.3 / cu118
-        "# python3 -m pip install --no-cache-dir --upgrade --no-deps "
-        "# --extra-index-url https://download.pytorch.org/whl/cu118 "
-        "# xformers==0.0.26.post2 && "
-
-        # 4 ─ Clone / update repo (cached on pod volume)
+        # 3 ─ clone / update repo
         "[ -d /workspace/repo/.git ] || "
         "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git "
         "/workspace/repo && "
         "cd /workspace/repo && "
-
-        # 5 ─ Fire off the generator
+        # 4 ─ run generator
         "python3 scripts/generate_pixart.py"
     )
 
