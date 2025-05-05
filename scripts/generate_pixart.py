@@ -1,115 +1,134 @@
 #!/usr/bin/env python3
 """
-Batch generator for PixArt-α XL 2 (Diffusers).
-Reads NDJSON prompts, renders each prompt in
-N styles × 3 orthographic views, saves PNGs.
+Generate one 3 × 1 orthographic sprite-sheet (front | side | back)
+for every  ( prompt  ×  style )  pair using PixArt-α-XL.
+
+ENV (all inherited from the GitHub workflow):
+
+  MODEL_ID       – Hugging Face ID, e.g. PixArt-alpha/PixArt-XL-2-1024-MS
+  PROMPT_GLOB    – NDJSON prompt paths, glob-style
+  SEED           – base RNG seed (integer, deterministic)
+  WIDTH          – sheet width   (default 3072 → 3 × 1024)
+  HEIGHT         – sheet height  (default 1024)
+  ORTHO          – "true"/"false" → orthographic vs perspective
+
+Outputs land in  outputs/<Style>/sheet/<prompt-stem>.png
 """
 from __future__ import annotations
-import glob, json, os, sys, time, random
+
+import glob, json, os, random, sys, time
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
 
 import torch
-from diffusers import PixArtAlphaPipeline
 from PIL import Image
+from diffusers import DiffusionPipeline
 
-# ── styles (same keys you used before) ───────────────────────────────────
+# ─── 1 ▸ style catalogue ────────────────────────────────────────────────
 STYLES: dict[str, str] = {
-    "Photorealistic":    "photorealistic, lifelike textures, realistic lighting",
-    "Disney":            "Disney animation style, whimsical, vibrant colours",
-    "Cartoon":           "cartoon style, bold outlines, flat colours",
-    "Watercolor":        "soft watercolor painting, gentle brush strokes",
-    "Anime":             "anime style, crisp line art, cel shading",
-    "3D_Render":         "cinematic 3D render, physically based shading",
-    "Pixel_Art":         "retro pixel-art style, low resolution, 16-bit palette",
-    "World_of_Warcraft": "dark-fantasy World-of-Warcraft style, ornate armour",
-    "Studio_Ghibli":     "Studio Ghibli, pastel palette, hand-drawn feel",
-    "Line_Art":          "clean line-art, high contrast ink drawing",
+    "Photorealistic":    "photorealistic style, high fidelity, realistic lighting, lifelike textures",
+    "Disney":            "Disney-style animation, whimsical characters, vibrant colours",
+    "Cartoon":           "cartoon style, bold outlines, flat colours, stylised exaggeration",
+    "Watercolor":        "water-colour / hand-painted style, soft brush strokes, blended colours",
+    "Anime":             "anime style, cel-shaded, crisp line art, expressive characters",
+    "3D_Render":         "3-D render style, realistic shading, detailed modelling, cinematic lighting",
+    "Pixel_Art":         "pixel-art style, low resolution, blocky pixels, retro game aesthetic",
+    "World_of_Warcraft": "World-of-Warcraft dark fantasy, stylised realism, ornate armour",
+    "Studio_Ghibli":     "Studio-Ghibli soft pastel palette, whimsical detail, hand-drawn feel",
+    "Line_Art":          "line-art / ink sketch, high contrast, black & white, hand-drawn lines",
 }
-VIEWS = ["front", "side", "back"]
 
-# ── helpers ──────────────────────────────────────────────────────────────
-def req(key: str) -> str:
+VIEWS              = ["front", "side", "back"]   # always L → R
+VIEW_GRID_W, VIEW_GRID_H = 3, 1                  # fixed for now
+
+# ─── 2 ▸ utility helpers ────────────────────────────────────────────────
+def req_env(key: str) -> str:
     v = os.getenv(key)
     if not v:
         sys.exit(f"[ERROR] env '{key}' is required")
     return v
 
 def load_prompts(pattern: str) -> List[Tuple[str, str]]:
-    items: List[Tuple[str, str]] = []
-    for p in glob.glob(pattern, recursive=True):
-        with open(p, encoding="utf-8") as fh:
+    out: list[Tuple[str, str]] = []
+    for path in glob.glob(pattern, recursive=True):
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 if not line.strip():
                     continue
                 data = json.loads(line)
-                txt  = data.get("text") or data.get("prompt", "")
+                txt  = data.get("text") or data.get("prompt") or ""
                 if txt.strip():
-                    items.append((Path(p).stem, txt.strip()))
-    if not items:
+                    out.append((Path(path).stem, txt.strip()))
+    if not out:
         sys.exit(f"[ERROR] no prompts matched {pattern!r}")
-    return items
+    return out
 
-def seed_for(base: int, s_idx: int, v_idx: int) -> int:
-    return base + s_idx * 100 + v_idx
+def seed_everything(seed: int) -> torch.Generator:
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    return torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
 
-# ── main ─────────────────────────────────────────────────────────────────
+# ─── 3 ▸ main routine ───────────────────────────────────────────────────
 def main() -> None:
-    import diffusers, transformers
-    print(f"[INFO] diffusers {diffusers.__version__}, transformers {transformers.__version__}")
+    t0          = time.perf_counter()
+    model_id    = req_env("MODEL_ID")
+    pattern     = req_env("PROMPT_GLOB")
+    base_seed   = int(req_env("SEED"))
 
-    model_id  = req("MODEL_ID")
-    pattern   = req("PROMPT_GLOB")
-    base_seed = int(req("SEED"))
+    width       = int(os.getenv("WIDTH",  "3072"))   # 3 × 1024
+    height      = int(os.getenv("HEIGHT", "1024"))
+    ortho       = os.getenv("ORTHO", "true").lower() == "true"
 
-    W = int(os.getenv("WIDTH",  "1024"))
-    H = int(os.getenv("HEIGHT", "1024"))
-    ortho = os.getenv("ORTHO", "true").lower() == "true"
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pipe   = PixArtAlphaPipeline.from_pretrained(
+    device      = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[INFO] Loading {model_id} on {device} …")
+    pipe = DiffusionPipeline.from_pretrained(
         model_id,
-        torch_dtype=torch.float16,
+        torch_dtype = torch.float16 if device == "cuda" else torch.float32,
+        variant     = "fp16"
     ).to(device)
     pipe.set_progress_bar_config(disable=True)
 
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
+    prompt_list = load_prompts(pattern)
+    total   = len(prompt_list) * len(STYLES)
 
-    entries = load_prompts(pattern)
-    total   = len(entries) * len(STYLES) * len(VIEWS)
-    idx_out = 0
+    counter = 0
+    for prompt_stem, subject in prompt_list:
+        for s_idx, (style_name, style_desc) in enumerate(STYLES.items()):
+            seed = base_seed + (s_idx + 1) * 1000
+            g    = seed_everything(seed)
 
-    for stem, subj in entries:
-        for v_idx, view in enumerate(VIEWS):
-            for s_idx, (style_name, style_desc) in enumerate(STYLES.items()):
-                seed = seed_for(base_seed, s_idx, v_idx)
-                g    = torch.Generator(device=device).manual_seed(seed)
+            # — composite text prompt ————————————————————————————
+            prompt = (
+                f"{style_desc}. "
+                f"A 3-panel orthographic sheet showing the {subject} "
+                f"from the front, side and back, left-to-right. "
+                f"{'Orthographic projection.' if ortho else 'Perspective view.'} "
+                f"Each panel centred, no overlap, transparent background."
+            )
 
-                prompt = (
-                    f"{subj}, {style_desc}, "
-                    f"orthographic {view} view, "
-                    f"{'transparent background' if ortho else 'studio background'}"
-                )
+            print(f"[{counter+1}/{total}] {style_name:<14}  seed={seed}")
+            image = pipe(
+                prompt               = prompt,
+                height               = height,
+                width                = width,
+                num_inference_steps  = 25,
+                guidance_scale       = 5.0,
+                generator            = g,
+            ).images[0]
 
-                t0 = time.perf_counter()
-                img: Image.Image = pipe(prompt=prompt,
-                                        height=H, width=W,
-                                        generator=g,
-                                        num_inference_steps=25,
-                                        guidance_scale=6.0).images[0]
-                dt = time.perf_counter() - t0
-                print(f"[{idx_out+1}/{total}] {style_name:<14} {view:<5} "
-                      f"seed={seed}  {dt:4.1f}s")
+            save_dir = out_root / style_name / "sheet"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            out_path = save_dir / f"{prompt_stem}.png"
+            image.save(out_path)
 
-                save_dir = out_root / style_name / view
-                save_dir.mkdir(parents=True, exist_ok=True)
-                img_path = save_dir / f"{stem}_{idx_out:04}.png"
-                img.save(img_path)
+            counter += 1
+            print(f"      → saved {out_path.relative_to(out_root)}")
 
-                idx_out += 1
-
-    print(f"[✓] wrote {idx_out} PNGs to {out_root.resolve()}")
+    dt = time.perf_counter() - t0
+    print(f"[✓] Completed  {counter} sheets  ({dt/60:4.1f} min total)")
 
 if __name__ == "__main__":
     main()

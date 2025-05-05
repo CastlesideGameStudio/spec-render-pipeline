@@ -22,7 +22,7 @@ on:
 
       gpu_type:
         description: RunPod GPU type
-        default: 'NVIDIA A100 80GB'
+        default: 'NVIDIA H100 NVL'          # ← back to the trusted GPU
 
       volume_gb:
         description: Optional pod disk size
@@ -33,11 +33,11 @@ on:
         default: 'PixArt-alpha/PixArt-XL-2-1024-MS'
 
       width:
-        description: Width in px
-        default: '1024'
+        description: Sprite-sheet width in px  (3 × panel width)
+        default: '3072'                     # 1024 px × 3 panels
 
       height:
-        description: Height in px
+        description: Panel height in px
         default: '1024'
 
       orthographic:
@@ -76,7 +76,7 @@ jobs:
           GPU_TYPE:     ${{ inputs.gpu_type }}
           VOLUME_GB:    ${{ inputs.volume_gb }}
 
-          # PixArt params
+          # PixArt-α parameters
           MODEL_ID:     ${{ inputs.model_id }}
           WIDTH:        ${{ inputs.width }}
           HEIGHT:       ${{ inputs.height }}

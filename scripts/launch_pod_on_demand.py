@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 """
-Spin up an On-Demand RunPod, install Diffusers + PixArt-α,
-run scripts/generate_pixart.py and tail the logs.
+Spin up an On-Demand RunPod pod, install Diffusers + PixArt-α,
+run scripts/generate_pixart.py and stream the logs.
+
+Revision history
+────────────────
+• default GPU     → NVIDIA H100 NVL  (was A100 80 GB)
+• default WxH     → 3072 × 1024  (3 × 1024-px ortho panels)
+• robust pod-ID   → handle list/dict response from RunPod
+• a couple of extra log lines for clarity
 """
 from __future__ import annotations
+
 import os, sys, time, requests, json
 
-BASE     = "https://rest.runpod.io/v1"
-API_PODS = f"{BASE}/pods"
-POLL     = 10                              # seconds
+BASE      = "https://rest.runpod.io/v1"
+API_PODS  = f"{BASE}/pods"
+POLL_SEC  = 10   # log-poll interval
 
 # ── helpers ──────────────────────────────────────────────────────────────
 def req(key: str) -> str:
@@ -24,7 +32,7 @@ def image_ref() -> str:
 # ── main ─────────────────────────────────────────────────────────────────
 def main() -> None:
     api_key   = req("RUNPOD_API_KEY")
-    gpu_type  = os.getenv("GPU_TYPE", "NVIDIA A100 80GB")
+    gpu_type  = os.getenv("GPU_TYPE", "NVIDIA H100 NVL")
     region    = os.getenv("LINODE_DEFAULT_REGION", "us-se-1")
     volume_gb = int(os.getenv("VOLUME_GB") or 120)
 
@@ -33,9 +41,9 @@ def main() -> None:
         "MODEL_ID":    req("MODEL_ID"),
         "PROMPT_GLOB": req("PROMPT_GLOB"),
         "SEED":        req("SEED"),
-        "WIDTH":       os.getenv("WIDTH", "1024"),
+        "WIDTH":       os.getenv("WIDTH",  "3072"),   # 3 × 1024
         "HEIGHT":      os.getenv("HEIGHT", "1024"),
-        "ORTHO":       os.getenv("ORTHO", "true"),
+        "ORTHO":       os.getenv("ORTHO",  "true"),
 
         # S3 passthrough
         "LINODE_ACCESS_KEY_ID":     os.getenv("LINODE_ACCESS_KEY_ID", ""),
@@ -71,17 +79,29 @@ def main() -> None:
     }
 
     hdr = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    print(f"[INFO] Creating pod → GPU={gpu_type}")
-    pod = requests.post(API_PODS, headers=hdr, json=payload, timeout=60).json()
-    pod_id = pod.get("id") or sys.exit("[ERROR] no pod id")
 
-    last = ""
+    print(f"[INFO] Creating pod → GPU={gpu_type}, image={image_ref()}, disk={volume_gb} GB")
+    resp = requests.post(API_PODS, headers=hdr, json=payload, timeout=60)
+    if resp.status_code >= 400:
+        sys.exit(f"[ERROR] RunPod API error {resp.status_code}: {resp.text}")
+
+    pod_json = resp.json()
+    # The REST API occasionally returns a list; handle both.
+    if isinstance(pod_json, list):
+        pod_json = pod_json[0]
+
+    pod_id = pod_json.get("id") or sys.exit("[ERROR] no pod id returned")
+    print(f"[INFO] Pod created: {pod_id}")
+
+    # ── tail logs until pod exits ────────────────────────────────────────
+    last_log = ""
     while True:
-        time.sleep(POLL)
+        time.sleep(POLL_SEC)
         log = requests.get(f"{API_PODS}/{pod_id}/logs", headers=hdr, timeout=30)
-        if log.ok and log.text != last:
-            print(log.text[len(last):], end="", flush=True)
-            last = log.text
+        if log.ok and log.text != last_log:
+            print(log.text[len(last_log):], end="", flush=True)
+            last_log = log.text
+
         status = requests.get(f"{API_PODS}/{pod_id}", headers=hdr, timeout=30).json().get("status", "UNKNOWN")
         if status not in ("Pending", "Running"):
             print(f"\n[INFO] Pod status = {status}")
