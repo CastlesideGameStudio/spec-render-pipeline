@@ -1,120 +1,91 @@
 #!/usr/bin/env python3
 """
-Spin up one On-Demand RunPod pod (H100 NVL by default) and stream logs,
-running the deterministic Qwen-3 batch generator.
-
-All required ENV vars are injected by the GitHub workflow.
+Spin up an On-Demand RunPod, install Diffusers + PixArt-α,
+run scripts/generate_pixart.py and tail the logs.
 """
 from __future__ import annotations
-import os, sys, time, requests
+import os, sys, time, requests, json
 
-BASE      = "https://rest.runpod.io/v1"
-API_PODS  = f"{BASE}/pods"
-POLL_SEC  = 10
+BASE     = "https://rest.runpod.io/v1"
+API_PODS = f"{BASE}/pods"
+POLL     = 10                              # seconds
 
-# ─── helpers ──────────────────────────────────────────────────────────────
-def req_env(key: str) -> str:
+# ── helpers ──────────────────────────────────────────────────────────────
+def req(key: str) -> str:
     val = os.getenv(key)
     if not val:
-        sys.exit(f"[ERROR] Required ENV '{key}' is missing or empty.")
+        sys.exit(f"[ERROR] env '{key}' is required")
     return val
 
-def normalise_gpu(name: str) -> str:
-    return name if name.startswith(("NVIDIA ", "AMD ", "Tesla ")) else f"NVIDIA {name}"
-
 def image_ref() -> str:
-    return os.getenv("IMAGE_NAME", "pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime")
+    return os.getenv("IMAGE_NAME",
+                     "pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime")
 
-# ─── main ─────────────────────────────────────────────────────────────────
+# ── main ─────────────────────────────────────────────────────────────────
 def main() -> None:
-    api_key   = req_env("RUNPOD_API_KEY")
-    region    = req_env("LINODE_DEFAULT_REGION")
-    gpu_type  = normalise_gpu(os.getenv("GPU_TYPE", "NVIDIA H100 NVL"))
-    volume_gb = int(os.getenv("VOLUME_GB", "120") or 120)
-    image     = image_ref()
+    api_key   = req("RUNPOD_API_KEY")
+    gpu_type  = os.getenv("GPU_TYPE", "NVIDIA A100 80GB")
+    region    = os.getenv("LINODE_DEFAULT_REGION", "us-se-1")
+    volume_gb = int(os.getenv("VOLUME_GB") or 120)
 
-    # vars passed through to the container
-    env_block = {
-        "MODEL_ID":    req_env("MODEL_ID"),
-        "PROMPT_GLOB": req_env("PROMPT_GLOB"),
-        "SEED":        req_env("SEED"),
+    env = {
+        # generation script
+        "MODEL_ID":    req("MODEL_ID"),
+        "PROMPT_GLOB": req("PROMPT_GLOB"),
+        "SEED":        req("SEED"),
+        "WIDTH":       os.getenv("WIDTH", "1024"),
+        "HEIGHT":      os.getenv("HEIGHT", "1024"),
+        "ORTHO":       os.getenv("ORTHO", "true"),
 
-        "WIDTH":  os.getenv("WIDTH",  "1920"),
-        "HEIGHT": os.getenv("HEIGHT", "1080"),
-        "ORTHO":  os.getenv("ORTHO",  "true"),
-
-        # Linode creds
+        # S3 passthrough
         "LINODE_ACCESS_KEY_ID":     os.getenv("LINODE_ACCESS_KEY_ID", ""),
         "LINODE_SECRET_ACCESS_KEY": os.getenv("LINODE_SECRET_ACCESS_KEY", ""),
         "LINODE_S3_ENDPOINT":       os.getenv("LINODE_S3_ENDPOINT", ""),
         "LINODE_DEFAULT_REGION":    region,
     }
 
-    print("[DEBUG] Container ENV:")
-    for k, v in env_block.items():
-        slice_ = (v[:110] + "…") if len(v) > 110 else v
-        print(f"   {k} = {slice_!r}")
+    start_cmd = (
+        "export DEBIAN_FRONTEND=noninteractive && "
+        "apt-get update -qq && "
+        "apt-get install -y --no-install-recommends git python3-pip tzdata && "
+        # lightweight deps
+        "python3 -m pip install --no-cache-dir --upgrade "
+        "diffusers[torch] transformers accelerate pillow safetensors xformers && "
+        # repo (reuse cache when pod restarts)
+        "[ -d /workspace/repo/.git ] || "
+        "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && "
+        "cd /workspace/repo && "
+        "python3 scripts/generate_pixart.py"
+    )
 
     payload = {
-        "name": "qwen3-render-on-demand",
+        "name": "pixart-render-on-demand",
         "cloudType": "SECURE",
         "gpuTypeIds": [gpu_type],
         "gpuCount": 1,
         "volumeInGb": volume_gb,
         "containerDiskInGb": volume_gb,
-        "imageName": image,
-        "dockerStartCmd": [
-            "bash",
-            "-c",
-            (
-                # deterministic cuBLAS + minimal deps
-                "export CUBLAS_WORKSPACE_CONFIG=:16:8 && "
-                "export DEBIAN_FRONTEND=noninteractive && "
-                "apt-get update -qq && "
-                "apt-get install -y --no-install-recommends git python3-pip tzdata && "
-                "python3 -m pip install --no-cache-dir --upgrade "
-                "'transformers>=4.51.0' accelerate bitsandbytes pillow && "
-                # clone or reuse repo
-                "[ -d /workspace/repo/.git ] || "
-                "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git /workspace/repo && "
-                # NEW: change dir so addendums/** glob resolves
-                "cd /workspace/repo && "
-                # run deterministic generator
-                "python3 scripts/generate_qwen3.py"
-            ),
-        ],
-        "env": env_block,
+        "imageName": image_ref(),
+        "dockerStartCmd": ["bash", "-c", start_cmd],
+        "env": env,
     }
 
-    if (auth := os.getenv("CONTAINER_AUTH_ID")):
-        payload["containerRegistryAuthId"] = auth
+    hdr = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    print(f"[INFO] Creating pod → GPU={gpu_type}")
+    pod = requests.post(API_PODS, headers=hdr, json=payload, timeout=60).json()
+    pod_id = pod.get("id") or sys.exit("[ERROR] no pod id")
 
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    print(f"[INFO] Creating pod → GPU={gpu_type}, image={image}, disk={volume_gb} GB")
-    resp = requests.post(API_PODS, json=payload, headers=headers, timeout=60)
-    if resp.status_code >= 400:
-        print("[ERROR] Pod creation failed →", resp.status_code, resp.text)
-        sys.exit(1)
-
-    pod_id = resp.json().get("id") or sys.exit("[ERROR] No pod ID returned.")
-    print(f"[INFO] Pod created: {pod_id}")
-
-    # ── stream logs ───────────────────────────────────────────────────────
-    last_log = ""
+    last = ""
     while True:
-        time.sleep(POLL_SEC)
-        log = requests.get(f"{API_PODS}/{pod_id}/logs", headers=headers, timeout=30)
-        if log.ok and log.text != last_log:
-            print(log.text[len(last_log):], end="", flush=True)
-            last_log = log.text
-        stat = requests.get(f"{API_PODS}/{pod_id}", headers=headers, timeout=30)
-        status = stat.json().get("status", "UNKNOWN") if stat.ok else "UNKNOWN"
+        time.sleep(POLL)
+        log = requests.get(f"{API_PODS}/{pod_id}/logs", headers=hdr, timeout=30)
+        if log.ok and log.text != last:
+            print(log.text[len(last):], end="", flush=True)
+            last = log.text
+        status = requests.get(f"{API_PODS}/{pod_id}", headers=hdr, timeout=30).json().get("status", "UNKNOWN")
         if status not in ("Pending", "Running"):
             print(f"\n[INFO] Pod status = {status}")
             break
-
-    print("[INFO] Log stream closed — pod finished.")
 
 if __name__ == "__main__":
     main()

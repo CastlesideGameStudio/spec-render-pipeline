@@ -1,20 +1,19 @@
 # .github/workflows/render.yml
 # ---------------------------------------------------------------------------
-# Launch a deterministic Qwen-3 image-generation batch on RunPod (H100 NVL)
-# and upload results to Linode object storage.
+# Launch a PixArt-α XL batch on RunPod and archive the PNGs to Linode S3.
 # ---------------------------------------------------------------------------
 
-name: Launch Render Batch
+name: Launch Render Batch (PixArt-α)
 
 on:
   workflow_dispatch:
     inputs:
       prompt_glob:
-        description: NDJSON files to include in this batch
+        description: NDJSON prompt files to include
         default: 'addendums/**/*.ndjson'
 
       seed:
-        description: RNG seed for deterministic runs
+        description: RNG seed (deterministic)
         default: '123456'
 
       image_name:
@@ -22,24 +21,24 @@ on:
         default: 'pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime'
 
       gpu_type:
-        description: GPU type for the pod
-        default: 'NVIDIA H100 NVL'        # ← exact RunPod enum
+        description: RunPod GPU type
+        default: 'NVIDIA A100 80GB'
 
       volume_gb:
-        description: Disk size in GB (optional)
+        description: Optional pod disk size
         default: ''
 
       model_id:
-        description: Qwen-3 model ID
-        default: 'Qwen/Qwen3-32B'
+        description: Diffusers model ID
+        default: 'PixArt-alpha/PixArt-XL-2-1024-MS'
 
       width:
-        description: Output image width in pixels
-        default: '1920'
+        description: Width in px
+        default: '1024'
 
       height:
-        description: Output image height in pixels
-        default: '1080'
+        description: Height in px
+        default: '1024'
 
       orthographic:
         description: Use orthographic projection?
@@ -49,7 +48,6 @@ on:
 jobs:
   render:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -57,35 +55,31 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python deps
-        run: |
-          pip install requests \
-                      "transformers>=4.51.0" \
-                      accelerate \
-                      bitsandbytes
+      - name: Install local helper deps
+        run: pip install requests
 
       - name: Launch On-Demand Pod
         env:
-          # ── RunPod auth ───────────────────────────────────────────────
+          # RunPod
           RUNPOD_API_KEY:          ${{ secrets.RUNPOD_API_KEY }}
 
-          # ── Linode object-storage creds ───────────────────────────────
+          # Linode S3
           LINODE_ACCESS_KEY_ID:     ${{ secrets.LINODE_ACCESS_KEY_ID }}
           LINODE_SECRET_ACCESS_KEY: ${{ secrets.LINODE_SECRET_ACCESS_KEY }}
           LINODE_DEFAULT_REGION:    ${{ secrets.LINODE_DEFAULT_REGION }}
           LINODE_S3_ENDPOINT:       ${{ secrets.LINODE_S3_ENDPOINT }}
 
-          # ── Batch parameters forwarded into the pod ───────────────────
+          # Batch parameters
           PROMPT_GLOB:  ${{ inputs.prompt_glob }}
           SEED:         ${{ inputs.seed }}
           IMAGE_NAME:   ${{ inputs.image_name }}
           GPU_TYPE:     ${{ inputs.gpu_type }}
           VOLUME_GB:    ${{ inputs.volume_gb }}
 
-          # ── Qwen-3 parameters ─────────────────────────────────────────
-          MODEL_ID: ${{ inputs.model_id }}
-          WIDTH:    ${{ inputs.width }}
-          HEIGHT:   ${{ inputs.height }}
-          ORTHO:    ${{ inputs.orthographic }}
+          # PixArt params
+          MODEL_ID:     ${{ inputs.model_id }}
+          WIDTH:        ${{ inputs.width }}
+          HEIGHT:       ${{ inputs.height }}
+          ORTHO:        ${{ inputs.orthographic }}
 
         run: python scripts/launch_pod_on_demand.py
