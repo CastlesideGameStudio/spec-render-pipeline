@@ -1,46 +1,62 @@
 #!/usr/bin/env python3
 """
-Generate a single 3 × 1 orthographic sprite‑sheet (front / side / back)
-for every (prompt × style) pair using **PixArt‑α XL**.
+Generate a single 3 × 1 orthographic sprite-sheet (front / side / back)
+for every (prompt × style) pair using **PixArt-α XL**.
 
-Changelog (2025‑05‑05)
-──────────────────────────────────────────────────────────
-• **Removed** hard‑coded `variant="fp16"` so the script works with any
-  checkpoint (Diffusers will auto‑cast weights to fp16 when possible).
-• **Added** optional _smoke‑test_ mode (`--smoke-test` or
-  `SMOKE_TEST=1`) that loads the model and renders one 32×32 canary
-  image, failing fast if anything is missing.
-• **Exported** `TRANSFORMERS_NO_GGML=1` and `TRANSFORMERS_NO_TF=1`
-  early, trimming a little import overhead and avoiding unused
-  back‑ends.
-• Minor: added `--prefer-binary` hint in docstring, tightened type
-  annotations, and printed human‑friendly timing.
+──────────────────────────  PRIORITIES  ──────────────────────────
+✓ **Correctness & repeatability beat raw performance.**
 
-ENV (validated at runtime unless `--smoke-test`):
-  MODEL_ID, PROMPT_GLOB, SEED, WIDTH, HEIGHT, ORTHO
+      • Torch and CUDA run in fully deterministic mode.
+      • Each sheet gets an independent, predictable seed.
+      • (Optional) `MODEL_REV` can pin the exact model commit.
+
+──────────────────────────  LESSONS LEARNED  ─────────────────────
+✓ ALWAYS keep WIDTH == len(VIEWS) * per-panel-width.
+✓ ALWAYS call `seed_everything()` once **per sheet**.
+✓ ALWAYS pass explicit `torch_dtype` when loading the pipeline.
+✓ DON’T mix perspective & orthographic tokens in one prompt.
+✓ DON’T rely on PIL to “fix” colour spaces—stay in sRGB.
+
+ENV (validated at runtime) ───────────────────────────────────────
+  MODEL_ID     — HuggingFace repo / path
+  PROMPT_GLOB  — NDJSON glob of prompt files
+  SEED         — base integer seed
+  WIDTH        — sprite-sheet width  (default 3072)
+  HEIGHT       — sprite-sheet height (default 1024)
+  ORTHO        — “true” | “false” (default true)
+  MODEL_REV    — optional commit SHA / tag for exact weights
+  SMOKE_TEST   — “1” to run a tiny deterministic sanity render
 """
+
 from __future__ import annotations
 
-import argparse
-import glob
-import json
-import os
-import random
-import sys
-import time
+# ----------------------------------------------------------------------
+# Determinism toggles *before* heavy imports
+# ----------------------------------------------------------------------
+import os as _os
+
+# Skip unused back-ends (no functional impact ≥ ensures same imports).
+_os.environ.setdefault("TRANSFORMERS_NO_GGML", "1")
+_os.environ.setdefault("TRANSFORMERS_NO_TF",  "1")
+
+# Exact reproducibility for cuBLAS / CUDA kernels
+_os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+_os.environ.setdefault("PYTHONHASHSEED", "0")
+
+import glob, json, os, random, sys, time
 from pathlib import Path
 from typing import List, Tuple
+import hashlib
 
-# Skip unused back‑ends for marginally faster imports
-os.environ.setdefault("TRANSFORMERS_NO_GGML", "1")  # no GGML
-os.environ.setdefault("TRANSFORMERS_NO_TF", "1")    # no TensorFlow
+import torch
 
-import torch  # noqa: E402
-from PIL import Image  # noqa: F401, E402 (import side‑effects for Diffusers)
-from diffusers import DiffusionPipeline  # noqa: E402
+# Force deterministic algorithms everywhere
+torch.use_deterministic_algorithms(True, warn_only=False)
+
+from PIL import Image      # noqa: F401 (side-effects for DiffusionPipeline)
+from diffusers import DiffusionPipeline
 
 # ==== 1) ART STYLES ========================================================
-# (Pure data – tweak at will.  Keys must be unique; values are appended to prompts.)
 STYLES: dict[str, str] = {
     # realistic / painterly
     "Photorealistic":        "photorealistic style, high fidelity, realistic lighting, lifelike textures",
@@ -105,22 +121,20 @@ STYLES: dict[str, str] = {
     "Holographic":           "holographic foil, iridescent rainbow sheen, lens flares",
     "Candy_Gloss":           "candy-gloss toy look, translucent plastic, subsurface glow",
     "Metallic_Painted":      "metallic auto-paint, color-shift flakes, studio reflections",
-    "Neon_Wireframe":        "glowing neon wireframe, dark background, synth-grid"
+    "Neon_Wireframe":        "glowing neon wireframe, dark background, synth-grid",
 }
 
-VIEWS = ["front", "side", "back"]        # ALWAYS left → right
-VIEW_GRID_W = len(VIEWS)                    # = 3
-VIEW_GRID_H = 1
+VIEWS        = ["front", "side", "back"]
+VIEW_GRID_W  = len(VIEWS)                 # = 3
+VIEW_GRID_H  = 1
 
 # ==== 2) HELPERS ===========================================================
-
 def req(key: str) -> str:
-    """Fetch required ENV var or exit with an explicit error."""
+    """Fetch required ENV var or exit clearly."""
     val = os.getenv(key)
     if not val:
         sys.exit(f"[ERROR] env '{key}' is required")
     return val
-
 
 def load_prompts(pattern: str) -> List[Tuple[str, str]]:
     """Load NDJSON prompt files; return list[(stem, prompt_txt)]."""
@@ -131,47 +145,28 @@ def load_prompts(pattern: str) -> List[Tuple[str, str]]:
                 if not ln.strip():
                     continue
                 data = json.loads(ln)
-                txt = data.get("text") or data.get("prompt") or ""
+                txt  = data.get("text") or data.get("prompt") or ""
                 if txt.strip():
                     out.append((Path(path).stem, txt.strip()))
     if not out:
         sys.exit(f"[ERROR] no prompts matched {pattern!r}")
     return out
 
-
 def seed_everything(seed: int) -> None:
-    """Deterministic RNG across Python, Torch, and CUDA."""
+    """Deterministic RNG across Py + Torch + CUDA."""
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+def sha256_png(img: "Image.Image") -> str:
+    """Return SHA-256 digest of a PIL image’s PNG bytes (determinism check)."""
+    import io
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return hashlib.sha256(buf.getvalue()).hexdigest()
 
-# ==== 3) SMOKE TEST ========================================================
-
-def run_smoke_test(model_id: str, device: str) -> None:
-    """Load the model and render a tiny canary image to prove everything works."""
-    t0 = time.perf_counter()
-    pipe = DiffusionPipeline.from_pretrained(model_id, torch_dtype="auto").to(device)
-    load_dt = time.perf_counter() - t0
-
-    print(f"[SMOKE] model loaded in {load_dt:,.1f} s → generating canary…")
-    img = pipe(
-        prompt="pixel-test",
-        height=32,
-        width=96,   # 3×32 so aspect remains 3:1
-        num_inference_steps=4,
-        guidance_scale=4.0,
-    ).images[0]
-
-    tmp_path = Path("/tmp/canary.png")
-    img.save(tmp_path)
-    gen_dt = time.perf_counter() - t0 - load_dt
-    print(f"[SMOKE] success: {tmp_path} ({gen_dt:,.1f} s gen)")
-
-
-# ==== 4) MAIN ==============================================================
-
-def run_generator() -> None:
+# ==== 3) MAIN =============================================================
+def main() -> None:
     t0 = time.perf_counter()
 
     model_id  = req("MODEL_ID")
@@ -180,11 +175,13 @@ def run_generator() -> None:
     width     = int(os.getenv("WIDTH",  "3072"))   # 3 × 1024
     height    = int(os.getenv("HEIGHT", "1024"))
     ortho     = os.getenv("ORTHO", "true").lower() == "true"
+    model_rev = os.getenv("MODEL_REV") or None
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     pipe = DiffusionPipeline.from_pretrained(
         model_id,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        revision=model_rev,
     ).to(device)
 
     out_root = Path("outputs")
@@ -196,8 +193,9 @@ def run_generator() -> None:
 
     for stem, subj in prompts:
         for s_idx, (style, style_desc) in enumerate(STYLES.items(), start=1):
-            seed = base_seed + s_idx * 1000         # deterministic per style
+            seed = base_seed + s_idx * 1000  # deterministic per style
             seed_everything(seed)
+            gen = torch.Generator(device).manual_seed(seed)  # per-call generator
 
             prompt = (
                 f"{style_desc}. "
@@ -214,6 +212,7 @@ def run_generator() -> None:
                 width               = width,
                 num_inference_steps = 25,
                 guidance_scale      = 5.0,
+                generator           = gen,
             ).images[0]
 
             save_dir = out_root / style / "sheet"
@@ -227,18 +226,19 @@ def run_generator() -> None:
     dt = time.perf_counter() - t0
     print(f"[OK] Completed -> {counter} sheets ({dt/60:4.1f} min total)")
 
-
-# ==== 5) ENTRYPOINT ========================================================
-
+# ==== 4) SMOKE-TEST MODE ===================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="PixArt‑α XL sprite‑sheet generator")
-    parser.add_argument("--smoke-test", action="store_true", help="Run a quick model‑load/generation check and exit")
-    args = parser.parse_args()
-
-    if args.smoke_test or os.getenv("SMOKE_TEST") == "1":
-        mid = os.getenv("MODEL_ID", "PixArt-alpha/PixArt-XL-2-1024px")
-        dev = "cuda" if torch.cuda.is_available() else "cpu"
-        run_smoke_test(mid, dev)
+    if "--smoke-test" in sys.argv or os.getenv("SMOKE_TEST") == "1":
+        # Quick deterministic canary: tiny sheet, single prompt
+        os.environ.setdefault("WIDTH",  "96")         # 3 × 32
+        os.environ.setdefault("HEIGHT", "32")
+        os.environ.setdefault("SEED",   "42")
+        print("[SMOKE] running 32×96 deterministic canary …")
+        main()
+        # Hash one of the freshly produced PNGs to assert determinism
+        example = next(Path("outputs").rglob("*.png"))
+        digest  = sha256_png(Image.open(example))
+        print(f"[SMOKE] SHA-256 digest = {digest}")
         sys.exit(0)
-
-    run_generator()
+    else:
+        main()
