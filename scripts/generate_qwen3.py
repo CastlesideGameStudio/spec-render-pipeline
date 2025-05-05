@@ -13,7 +13,7 @@ ORTHO          – "true"/"false" (default true → orthographic)
 """
 from __future__ import annotations
 
-import base64, binascii, glob, json, os, sys
+import base64, binascii, glob, json, os, sys, time
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
@@ -44,6 +44,7 @@ def req(key: str) -> str:
         sys.exit(f"[ERROR] Required ENV '{key}' is missing or empty.")
     return v
 
+
 def load_prompts(pattern: str) -> List[Tuple[str, str]]:
     items: List[Tuple[str, str]] = []
     for path in glob.glob(pattern, recursive=True):
@@ -59,13 +60,15 @@ def load_prompts(pattern: str) -> List[Tuple[str, str]]:
         sys.exit(f"[ERROR] No prompts matched '{pattern}'.")
     return items
 
+
 def seed_for(base: int, style_idx: int, view_idx: int) -> int:
     """Derive a deterministic but distinct seed for each (style, view)."""
     return base + style_idx * 100 + view_idx
 
+
 # ─── 3) MAIN ───────────────────────────────────────────────────────────────
 def main() -> None:
-    import time, transformers
+    import transformers
 
     # — banner —───────────────────────────────────────────────────────────
     print(f"[INFO] transformers-py version = {transformers.__version__}")
@@ -96,8 +99,8 @@ def main() -> None:
     )
 
     # — detect image interfaces —─────────────────────────────────────────
-    HAS_CHAT   = hasattr(model, "chat")   # legacy Qwen‐2 style
-    HAS_IMAGES = False                    # set True after first success
+    HAS_CHAT   = hasattr(model, "chat")   # legacy Qwen-2 style
+    HAS_IMAGES = True                     # optimistic; turned off on first failure
     MODE_USED  = None                     # printed once when detected
 
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
@@ -108,18 +111,17 @@ def main() -> None:
     # ——————————————————— generation loop ————————————————————————
     for stem, subj in entries:
         for v_idx, view in enumerate(VIEWS):
-            for s_idx, style_name in enumerate(STYLES):
+            for s_idx, (style_name, style_desc) in enumerate(STYLES.items()):
 
-                # deterministic seed
                 combo_seed = seed_for(base_seed, s_idx, v_idx)
                 torch.manual_seed(combo_seed)
-                torch.cuda.manual_seed_all(combo_seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(combo_seed)
 
-                # chat-template prompt
                 prompt_txt = tokenizer.apply_chat_template(
                     [{"role": "user",
                       "content":
-                      f"<STYLE={style_name.lower()}> "
+                      f"<STYLE={style_name.lower()}> {style_desc}, "
                       f"<SUBJECT={subj}> "
                       f"<VIEW={'orthographic' if ortho else 'perspective'} {view}> "
                       f"<LIGHT=soft studio key> <BG=transparent> "
@@ -134,62 +136,68 @@ def main() -> None:
                       f"seed={combo_seed:<6} mem_free={mem0:4.1f} GB")
 
                 png_bytes: bytes | None = None
-                try:
-                    # (1) chat() API  ────────────────────────────────
-                    if HAS_CHAT:
+
+                # (1) chat() API  ────────────────────────────────
+                if HAS_CHAT:
+                    try:
                         _, b64 = model.chat(
                             tokenizer, prompt_txt,
                             images=True, output_format="PNG",
-                            temperature=0.6,           # chat() is always sampled
+                            temperature=0.6,
                             top_p=None, top_k=None, seed=combo_seed,
                         )
                         png_bytes = base64.b64decode(b64)
                         if MODE_USED is None:
                             MODE_USED = "chat()"
                             print(f"[INFO] Image mode detected → {MODE_USED}")
+                    except Exception as e:
+                        HAS_CHAT = False
+                        print(f"[INFO] chat() unavailable → fallback ({e})")
 
-                    # (2) generate(images=True)  ─────────────────────
-                    if png_bytes is None and not HAS_CHAT:
-                        toks = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                # (2) generate(images=True)  ──────────────────────
+                if png_bytes is None and HAS_IMAGES and not HAS_CHAT:
+                    toks = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                    try:
                         png_list: list[bytes] = model.generate(
                             **toks,
                             images=True,
                             max_new_tokens=1,
                             do_sample=False,
-                            temperature=1.0,           # ← neutral, avoids 0.0 error
-                            top_p=None, top_k=None,
-                        )
-                        png_bytes = png_list[0]
-                        HAS_IMAGES = True
-                        if MODE_USED is None:
-                            MODE_USED = "generate(images=True)"
-                            print(f"[INFO] Image mode detected → {MODE_USED}")
-
-                    # (3) base-64 PNG inside text  ───────────────────
-                    if png_bytes is None and not HAS_CHAT and not HAS_IMAGES:
-                        toks = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
-                        out_ids = model.generate(
-                            **toks,
-                            max_new_tokens=256,
-                            do_sample=False,
                             temperature=1.0,
                             top_p=None, top_k=None,
                         )
-                        reply = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-                        if "data:image/png;base64," in reply:
-                            b64 = reply.split("data:image/png;base64,", 1)[1].split()[0]
-                            png_bytes = base64.b64decode(b64)
-                            if MODE_USED is None:
-                                MODE_USED = "PNG base-64 in text"
-                                print(f"[INFO] Image mode detected → {MODE_USED}")
+                        png_bytes = png_list[0]
+                        if MODE_USED is None:
+                            MODE_USED = "generate(images=True)"
+                            print(f"[INFO] Image mode detected → {MODE_USED}")
+                    except ValueError as e:
+                        # Specific failure (images kwarg unknown) ⇒ disable this path
+                        if "images" in str(e):
+                            HAS_IMAGES = False
+                            print("[INFO] generate(images=…) unsupported → will use base-64 replies")
                         else:
-                            raise RuntimeError("no image in reply")
+                            raise
 
-                except Exception as exc:
-                    dt   = time.perf_counter() - t0
-                    memx = torch.cuda.mem_get_info()[0]/1e9 if torch.cuda.is_available() else 0
-                    print(f"[ERR] generation failed in {dt:4.1f}s  mem_free={memx:4.1f} GB → {exc}")
-                    raise
+                # (3) base-64 PNG inside text  ───────────────────
+                if png_bytes is None and not HAS_CHAT and not HAS_IMAGES:
+                    toks = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                    out_ids = model.generate(
+                        **toks,
+                        max_new_tokens=256,
+                        do_sample=False,
+                        temperature=1.0,
+                        top_p=None, top_k=None,
+                    )
+                    reply = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+                    if "data:image/png;base64," in reply:
+                        b64 = reply.split("data:image/png;base64,", 1)[1].split()[0]
+                        png_bytes = base64.b64decode(b64)
+                        if MODE_USED is None:
+                            MODE_USED = "PNG base-64 in text"
+                            print(f"[INFO] Image mode detected → {MODE_USED}")
+                    else:
+                        print(f"[WARN] No image in reply for {stem}/{style_name}/{view}")
+                        continue  # skip this combo
 
                 # ---------- LOG after successful generation ----------
                 dt   = time.perf_counter() - t0
@@ -210,5 +218,6 @@ def main() -> None:
     print(f"[✓] Completed → {counter} images "
           f"({len(STYLES)} styles × {len(VIEWS)} views)  using [{MODE_USED}]")
 
+# ───────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     main()
