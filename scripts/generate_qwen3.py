@@ -65,8 +65,13 @@ def seed_for(base: int, style_idx: int, view_idx: int) -> int:
 
 # ─── 3) MAIN ───────────────────────────────────────────────────────────────
 def main() -> None:
-    import base64, binascii, transformers
+    import time, transformers
+
+    # — banner —───────────────────────────────────────────────────────────
     print(f"[INFO] transformers-py version = {transformers.__version__}")
+    if torch.cuda.is_available():
+        free, total = torch.cuda.mem_get_info()
+        print(f"[INFO] CUDA free / total mem = {free/1e9:4.1f} / {total/1e9:4.1f} GB")
 
     model_id  = req("MODEL_ID")
     pattern   = req("PROMPT_GLOB")
@@ -90,24 +95,27 @@ def main() -> None:
         trust_remote_code=True,
     )
 
-    # ── detect image interface flags (first success sticks) ──────────────
-    HAS_CHAT   = hasattr(model, "chat")
-    HAS_IMAGES = False          # set True once generate(images=True) succeeds
-    MODE_USED  = None           # human-readable description (printed once)
+    # — detect image interfaces —─────────────────────────────────────────
+    HAS_CHAT   = hasattr(model, "chat")   # legacy Qwen‐2 style
+    HAS_IMAGES = False                    # set True after first success
+    MODE_USED  = None                     # printed once when detected
 
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
     entries  = load_prompts(pattern)
     total    = len(entries) * len(STYLES) * len(VIEWS)
     counter  = 0
 
+    # ——————————————————— generation loop ————————————————————————
     for stem, subj in entries:
         for v_idx, view in enumerate(VIEWS):
             for s_idx, style_name in enumerate(STYLES):
 
+                # deterministic seed
                 combo_seed = seed_for(base_seed, s_idx, v_idx)
                 torch.manual_seed(combo_seed)
                 torch.cuda.manual_seed_all(combo_seed)
 
+                # chat-template prompt
                 prompt_txt = tokenizer.apply_chat_template(
                     [{"role": "user",
                       "content":
@@ -119,85 +127,88 @@ def main() -> None:
                     tokenize=False, add_generation_prompt=True, enable_thinking=False,
                 )
 
-                png_bytes: bytes | None = None
+                # ---------- LOG before any generation ----------
+                t0   = time.perf_counter()
+                mem0 = torch.cuda.mem_get_info()[0]/1e9 if torch.cuda.is_available() else 0
+                print(f"[{counter+1}/{total}] style={style_name:<14} view={view:<5} "
+                      f"seed={combo_seed:<6} mem_free={mem0:4.1f} GB")
 
-                # ── (1) legacy chat() API ────────────────────────────────
-                if HAS_CHAT:
-                    try:
-                        with torch.inference_mode():
-                            _, b64_png = model.chat(
-                                tokenizer, prompt_txt,
-                                images=True, output_format="PNG",
-                                temperature=0.6,  # chat() is always sampled
-                                top_p=None, top_k=None, seed=combo_seed,
-                            )
-                        png_bytes = base64.b64decode(b64_png)
+                png_bytes: bytes | None = None
+                try:
+                    # (1) chat() API  ────────────────────────────────
+                    if HAS_CHAT:
+                        _, b64 = model.chat(
+                            tokenizer, prompt_txt,
+                            images=True, output_format="PNG",
+                            temperature=0.6,           # chat() is always sampled
+                            top_p=None, top_k=None, seed=combo_seed,
+                        )
+                        png_bytes = base64.b64decode(b64)
                         if MODE_USED is None:
                             MODE_USED = "chat()"
                             print(f"[INFO] Image mode detected → {MODE_USED}")
-                    except Exception as e:
-                        HAS_CHAT = False
-                        print(f"[INFO] chat() unavailable → fallback ({e})")
 
-                # ── (2) generate(images=True) API ────────────────────────
-                if png_bytes is None and not HAS_CHAT:
-                    tokens = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
-                    try:
-                        with torch.inference_mode():
-                            png_list: list[bytes] = model.generate(
-                                **tokens,
-                                images=True,
-                                max_new_tokens=1,
-                                do_sample=False,      # greedy
-                                top_p=None, top_k=None,
-                            )
+                    # (2) generate(images=True)  ─────────────────────
+                    if png_bytes is None and not HAS_CHAT:
+                        toks = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
+                        png_list: list[bytes] = model.generate(
+                            **toks,
+                            images=True,
+                            max_new_tokens=1,
+                            do_sample=False,
+                            temperature=1.0,           # ← neutral, avoids 0.0 error
+                            top_p=None, top_k=None,
+                        )
                         png_bytes = png_list[0]
                         HAS_IMAGES = True
                         if MODE_USED is None:
                             MODE_USED = "generate(images=True)"
                             print(f"[INFO] Image mode detected → {MODE_USED}")
-                    except (TypeError, ValueError):
-                        HAS_IMAGES = False   # flag so we never try again
 
-                # ── (3) image as base-64 inside text  (current build) ────
-                if png_bytes is None and not HAS_CHAT and not HAS_IMAGES:
-                    tokens = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
-                    with torch.inference_mode():
+                    # (3) base-64 PNG inside text  ───────────────────
+                    if png_bytes is None and not HAS_CHAT and not HAS_IMAGES:
+                        toks = tokenizer(prompt_txt, return_tensors="pt").to(model.device)
                         out_ids = model.generate(
-                            **tokens,
+                            **toks,
                             max_new_tokens=256,
-                            do_sample=False,      # greedy
+                            do_sample=False,
+                            temperature=1.0,
                             top_p=None, top_k=None,
                         )
-                    reply = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-                    if "data:image/png;base64," in reply:
-                        b64 = reply.split("data:image/png;base64,", 1)[1].split()[0]
-                        try:
+                        reply = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+                        if "data:image/png;base64," in reply:
+                            b64 = reply.split("data:image/png;base64,", 1)[1].split()[0]
                             png_bytes = base64.b64decode(b64)
                             if MODE_USED is None:
                                 MODE_USED = "PNG base-64 in text"
                                 print(f"[INFO] Image mode detected → {MODE_USED}")
-                        except binascii.Error:
-                            print(f"[WARN] b64 decode failed for {stem}/{style_name}/{view}")
-                            continue
-                    else:
-                        print(f"[WARN] No image in reply for {stem}/{style_name}/{view}")
-                        continue
+                        else:
+                            raise RuntimeError("no image in reply")
 
-                # ── save PNG ─────────────────────────────────────────────
-                img = Image.open(BytesIO(png_bytes))
+                except Exception as exc:
+                    dt   = time.perf_counter() - t0
+                    memx = torch.cuda.mem_get_info()[0]/1e9 if torch.cuda.is_available() else 0
+                    print(f"[ERR] generation failed in {dt:4.1f}s  mem_free={memx:4.1f} GB → {exc}")
+                    raise
+
+                # ---------- LOG after successful generation ----------
+                dt   = time.perf_counter() - t0
+                mem1 = torch.cuda.mem_get_info()[0]/1e9 if torch.cuda.is_available() else 0
+                print(f"      ✓ finished in {dt:4.1f}s   mem_free={mem1:4.1f} GB")
+
+                # save PNG
+                img      = Image.open(BytesIO(png_bytes))
                 save_dir = out_root / style_name / view
                 save_dir.mkdir(parents=True, exist_ok=True)
-                idx  = entries.index((stem, subj))
-                file = save_dir / f"{stem}_{idx:03}.png"
-                img.save(file)
+                idx      = entries.index((stem, subj))
+                out_path = save_dir / f"{stem}_{idx:03}.png"
+                img.save(out_path)
 
                 counter += 1
-                print(f"[{counter}/{total}] Saved {style_name}/{view}/{file.name}")
+                print(f"      → saved {out_path.relative_to(out_root)}")
 
     print(f"[✓] Completed → {counter} images "
-          f"({len(STYLES)} styles × {len(VIEWS)} views) using [{MODE_USED}].")
-
+          f"({len(STYLES)} styles × {len(VIEWS)} views)  using [{MODE_USED}]")
 
 if __name__ == "__main__":
     main()
