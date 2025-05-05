@@ -1,9 +1,9 @@
 # .github/workflows/render.yml
 # ---------------------------------------------------------------------------
-# Launch a PixArt-α XL batch on RunPod and archive the PNGs to Linode S3.
+# Launch a PixArt-alpha XL batch on RunPod and archive the PNGs to Linode S3.
 # ---------------------------------------------------------------------------
 
-name: Launch Render Batch (PixArt-α)
+name: Launch Render Batch (PixArt-alpha)
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ on:
 
       gpu_type:
         description: RunPod GPU type
-        default: 'NVIDIA H100 NVL'          # ← back to the trusted GPU
+        default: 'NVIDIA H100 NVL'          # <- trusted GPU
 
       volume_gb:
         description: Optional pod disk size
@@ -33,8 +33,8 @@ on:
         default: 'PixArt-alpha/PixArt-XL-2-1024-MS'
 
       width:
-        description: Sprite-sheet width in px  (3 × panel width)
-        default: '3072'                     # 1024 px × 3 panels
+        description: Sprite-sheet width in px  (3 x panel width)
+        default: '3072'                     # 1024 px x 3 panels
 
       height:
         description: Panel height in px
@@ -76,7 +76,7 @@ jobs:
           GPU_TYPE:     ${{ inputs.gpu_type }}
           VOLUME_GB:    ${{ inputs.volume_gb }}
 
-          # PixArt-α parameters
+          # PixArt-alpha parameters
           MODEL_ID:     ${{ inputs.model_id }}
           WIDTH:        ${{ inputs.width }}
           HEIGHT:       ${{ inputs.height }}
