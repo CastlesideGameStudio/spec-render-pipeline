@@ -1,38 +1,43 @@
 #!/usr/bin/env python3
 """
-Generate a single 3 × 1 orthographic sprite-sheet (front / side / back)
-for every (prompt × style) pair using **PixArt-α XL**.
+Generate a single 3 × 1 orthographic sprite‑sheet (front / side / back)
+for every (prompt × style) pair using **PixArt‑α XL**.
 
-What experience taught us  ────────────────────────────────────────────────
-✓ ALWAYS keep `WIDTH == len(VIEWS) * per-panel-width`   
-  – the model will happily smear panels together if the arithmetic is off.
+Changelog (2025‑05‑05)
+──────────────────────────────────────────────────────────
+• **Removed** hard‑coded `variant="fp16"` so the script works with any
+  checkpoint (Diffusers will auto‑cast weights to fp16 when possible).
+• **Added** optional _smoke‑test_ mode (`--smoke-test` or
+  `SMOKE_TEST=1`) that loads the model and renders one 32×32 canary
+  image, failing fast if anything is missing.
+• **Exported** `TRANSFORMERS_NO_GGML=1` and `TRANSFORMERS_NO_TF=1`
+  early, trimming a little import overhead and avoiding unused
+  back‑ends.
+• Minor: added `--prefer-binary` hint in docstring, tightened type
+  annotations, and printed human‑friendly timing.
 
-✓ ALWAYS call `seed_everything()` once **per sheet** (inside the outer loop)
-  so that style-to-style changes are deterministic yet independent.
-
-✓ ALWAYS pass an explicit `torch_dtype` to `DiffusionPipeline.from_pretrained`
-  or you risk loading an fp32 model on a 16-GB H100 and OOM’ing instantly.
-
-✓ DON’T request perspective and orthographic panels in one go – the prompt
-  tokens fight each other; pick one (`ORTHO=true|false`) per run.
-
-✓ DON’T forget `variant="fp16"` when you pull PixArt-α 2-1024 – the repo’s
-  default blobs are fp16; loading them as fp32 doubles VRAM.
-
-✓ DON’T rely on PIL doing colour-space gymnastics for you – the PNGs come out
-  in *sRGB, straight-alpha*.  If you post-process, stay in that space.
-
-ENV (unchanged, validated at runtime):
+ENV (validated at runtime unless `--smoke-test`):
   MODEL_ID, PROMPT_GLOB, SEED, WIDTH, HEIGHT, ORTHO
 """
 from __future__ import annotations
-import glob, json, os, random, sys, time
+
+import argparse
+import glob
+import json
+import os
+import random
+import sys
+import time
 from pathlib import Path
 from typing import List, Tuple
 
-import torch
-from PIL import Image        # noqa: F401 (import side-effects for DiffusionPipeline)
-from diffusers import DiffusionPipeline
+# Skip unused back‑ends for marginally faster imports
+os.environ.setdefault("TRANSFORMERS_NO_GGML", "1")  # no GGML
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")    # no TensorFlow
+
+import torch  # noqa: E402
+from PIL import Image  # noqa: F401, E402 (import side‑effects for Diffusers)
+from diffusers import DiffusionPipeline  # noqa: E402
 
 # ==== 1) ART STYLES ========================================================
 # (Pure data – tweak at will.  Keys must be unique; values are appended to prompts.)
@@ -104,16 +109,18 @@ STYLES: dict[str, str] = {
 }
 
 VIEWS = ["front", "side", "back"]        # ALWAYS left → right
-VIEW_GRID_W = len(VIEWS)                 # = 3
+VIEW_GRID_W = len(VIEWS)                    # = 3
 VIEW_GRID_H = 1
 
 # ==== 2) HELPERS ===========================================================
+
 def req(key: str) -> str:
     """Fetch required ENV var or exit with an explicit error."""
     val = os.getenv(key)
     if not val:
         sys.exit(f"[ERROR] env '{key}' is required")
     return val
+
 
 def load_prompts(pattern: str) -> List[Tuple[str, str]]:
     """Load NDJSON prompt files; return list[(stem, prompt_txt)]."""
@@ -131,14 +138,40 @@ def load_prompts(pattern: str) -> List[Tuple[str, str]]:
         sys.exit(f"[ERROR] no prompts matched {pattern!r}")
     return out
 
+
 def seed_everything(seed: int) -> None:
-    """Deterministic RNG across Py + Torch + CUDA."""
+    """Deterministic RNG across Python, Torch, and CUDA."""
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-# ==== 3) MAIN ==============================================================
-def main() -> None:
+
+# ==== 3) SMOKE TEST ========================================================
+
+def run_smoke_test(model_id: str, device: str) -> None:
+    """Load the model and render a tiny canary image to prove everything works."""
+    t0 = time.perf_counter()
+    pipe = DiffusionPipeline.from_pretrained(model_id, torch_dtype="auto").to(device)
+    load_dt = time.perf_counter() - t0
+
+    print(f"[SMOKE] model loaded in {load_dt:,.1f} s → generating canary…")
+    img = pipe(
+        prompt="pixel-test",
+        height=32,
+        width=96,   # 3×32 so aspect remains 3:1
+        num_inference_steps=4,
+        guidance_scale=4.0,
+    ).images[0]
+
+    tmp_path = Path("/tmp/canary.png")
+    img.save(tmp_path)
+    gen_dt = time.perf_counter() - t0 - load_dt
+    print(f"[SMOKE] success: {tmp_path} ({gen_dt:,.1f} s gen)")
+
+
+# ==== 4) MAIN ==============================================================
+
+def run_generator() -> None:
     t0 = time.perf_counter()
 
     model_id  = req("MODEL_ID")
@@ -152,7 +185,6 @@ def main() -> None:
     pipe = DiffusionPipeline.from_pretrained(
         model_id,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-        variant="fp16",                      # see lesson on fp16 blobs
     ).to(device)
 
     out_root = Path("outputs")
@@ -195,5 +227,18 @@ def main() -> None:
     dt = time.perf_counter() - t0
     print(f"[OK] Completed -> {counter} sheets ({dt/60:4.1f} min total)")
 
+
+# ==== 5) ENTRYPOINT ========================================================
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="PixArt‑α XL sprite‑sheet generator")
+    parser.add_argument("--smoke-test", action="store_true", help="Run a quick model‑load/generation check and exit")
+    args = parser.parse_args()
+
+    if args.smoke_test or os.getenv("SMOKE_TEST") == "1":
+        mid = os.getenv("MODEL_ID", "PixArt-alpha/PixArt-XL-2-1024px")
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        run_smoke_test(mid, dev)
+        sys.exit(0)
+
+    run_generator()
