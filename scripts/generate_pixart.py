@@ -27,16 +27,55 @@ from diffusers import DiffusionPipeline
 
 # ─── 1 ▸ style catalogue ────────────────────────────────────────────────
 STYLES: dict[str, str] = {
-    "Photorealistic":    "photorealistic style, high fidelity, realistic lighting, lifelike textures",
-    "Disney":            "Disney-style animation, whimsical characters, vibrant colours",
-    "Cartoon":           "cartoon style, bold outlines, flat colours, stylised exaggeration",
-    "Watercolor":        "water-colour / hand-painted style, soft brush strokes, blended colours",
-    "Anime":             "anime style, cel-shaded, crisp line art, expressive characters",
-    "3D_Render":         "3-D render style, realistic shading, detailed modelling, cinematic lighting",
-    "Pixel_Art":         "pixel-art style, low resolution, blocky pixels, retro game aesthetic",
-    "World_of_Warcraft": "World-of-Warcraft dark fantasy, stylised realism, ornate armour",
-    "Studio_Ghibli":     "Studio-Ghibli soft pastel palette, whimsical detail, hand-drawn feel",
-    "Line_Art":          "line-art / ink sketch, high contrast, black & white, hand-drawn lines",
+    # ── core / generic ————————————————————————————————————————
+    "Photorealistic":     "photorealistic style, high fidelity, realistic lighting, lifelike textures",
+    "Disney":             "Disney-style animation, whimsical characters, vibrant colours",
+    "Cartoon":            "cartoon style, bold outlines, flat colours, stylised exaggeration",
+    "Watercolor":         "watercolour / hand-painted style, soft brush strokes, blended colours",
+    "Anime":              "anime style, cel-shaded, crisp line art, expressive characters",
+    "3D_Render":          "3D render style, realistic shading, detailed modelling, cinematic lighting",
+    "Pixel_Art":          "pixel-art style, low resolution, blocky pixels, retro game aesthetic",
+    "Line_Art":           "line-art / ink sketch, high contrast, black & white, hand-drawn lines",
+
+    # ── existing MMO / fantasy set ——————————————————————————
+    "World_of_Warcraft":  "World-of-Warcraft dark fantasy, stylised realism, ornate armour",
+    "Studio_Ghibli":      "Studio-Ghibli soft pastel palette, whimsical detail, hand-drawn feel",
+    "Blizzard_Cinematic": "Blizzard Entertainment cinematic style, exaggerated proportions, hyper-clean PBR texturing, heroic posing",
+    "Riot_Illustrative":  "League-of-Legends splash-art style, painterly gradients, high-contrast rim light, saturated palette",
+    "Dark_Souls":         "FromSoftware grimdark realism, muted colours, heavy weathering, gothic atmosphere",
+    "Elder_Scrolls":      "Elder-Scrolls high-fantasy realism, Nordic motifs, subdued earth tones, hand-painted textures",
+    "Lineage":            "Lineage MMO style, sleek armour plating, jewel accents, East-Asian high fantasy",
+    "Final_Fantasy_XIV":  "FFXIV art style, clean anime-influenced faces, ornate costume design, vibrant effect glows",
+    "Guild_Wars_Concept": "Guild-Wars concept art, painterly brushwork, impressionistic backdrops, desaturated mid-tones",
+    "Torchlight":         "Torchlight stylised low-poly, chunky silhouettes, bold colour blocking, playful proportions",
+    "Forsaken_Dusk":      "high-contrast dusk lighting, purple-blue ambience, ethereal particle effects, mystical aura",
+    "Steampunk_MMORPG":   "Victorian steampunk fantasy, brass machinery, leather straps, smoky industrial haze",
+    "Cel_Shaded_Combat":  "cel-shaded toon rendering, thick contour lines, vibrant flat shadows, anime motion streaks",
+    "Isometric_ARPG":     "isometric ARPG hand-painted textures, exaggerated foreshortening, loot sparkle highlights",
+
+    # ── NEW additions (18) ————————————————————————————————————
+    "Diablo_Immortal":    "Diablo-Immortal high-resolution gothic horror, crimson palette, demonic iconography, smouldering embers",
+    "Path_of_Exile":      "Path-of-Exile dark baroque fantasy, gritty surfaces, occult glyphs, muted browns and golds",
+    "Arcane_Series":      "Arcane (Netflix) painted 3D style, semi-realistic facial micro-detail, graffiti splatter accents",
+    "Overwatch_SciFi":    "Overwatch stylised sci-fi, hard-surface armour, saturated highlights, dynamic posing",
+    "RuneScape_HD":       "RuneScape modern HD style, bright colours, simplified shapes, whimsical medieval tech",
+    "Monster_Hunter":     "Monster-Hunter World realistic creature design, ornate bone armour, lush ecosystems",
+    "Dragon_Age":         "Dragon-Age dark heroic fantasy, weathered metals, embroidered fabrics, dramatic chiaroscuro",
+    "Warhammer_Grimdark": "Warhammer grimdark, heavy plate, gothic cathedral motifs, oil-paint texture",
+    "Mythic_China":       "mythic ancient-China fantasy, flowing silk robes, jade inlays, ink-wash background",
+    "Norse_Saga":         "Norse saga illustration, runic carvings, cold misty palette, rugged textures",
+    "Atlantean_BioTech":  "Atlantean biotech fantasy, crystalline coral armour, luminous teal highlights, aquatic ambience",
+    "Celestial_Paladin":  "celestial paladin aesthetic, radiant gold filigree, angelic wings, holy light bloom",
+    "Shadow_Punk":        "shadow-punk aesthetic, black-purple palette, neon edge lights, ethereal smoke trails",
+    "Lowpoly_Mobile":     "low-poly mobile-game style, flat shading, minimal textures, vibrant gradients",
+    "Voxel_RPG":          "voxel-based RPG art, cubic forms, chunk-outlined edges, retro-lighting",
+    "Handpainted_MMO":    "hand-painted MMO textures, visible brush strokes, stylised shapes, saturated fantasy colours",
+    "Stylized_PBR":       "stylised PBR workflow, exaggerated normals, crisp cavity maps, colourful albedo",
+    "Retro_PS1":          "retro PS1 low-poly look, affine-texture wobble, dithering, 256-colour palette",
+    "Comic_Book_Halftone": "comic-book halftone shading, bold inking, screen-tone dots, vintage CMYK offset",
+    "Ink_Wash_SumiE":     "Japanese sumi-e ink wash, minimal brushwork, dynamic negative space, rice-paper texture",
+
+    # (total entries = 40)
 }
 
 VIEWS              = ["front", "side", "back"]   # always L → R
