@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
 """
-Generate one 3 × 1 orthographic sprite-sheet (front | side | back)
-for every  ( prompt  ×  style )  pair using PixArt-α-XL.
+Generate a single 3×1 orthographic sprite-sheet (front / side / back)
+for every prompt × style, using PixArt-α XL.
 
-ENV (all inherited from the GitHub workflow):
-
-  MODEL_ID       – Hugging Face ID, e.g. PixArt-alpha/PixArt-XL-2-1024-MS
-  PROMPT_GLOB    – NDJSON prompt paths, glob-style
-  SEED           – base RNG seed (integer, deterministic)
-  WIDTH          – sheet width   (default 3072 → 3 × 1024)
-  HEIGHT         – sheet height  (default 1024)
-  ORTHO          – "true"/"false" → orthographic vs perspective
-
-Outputs land in  outputs/<Style>/sheet/<prompt-stem>.png
+ENV (unchanged):
+  MODEL_ID, PROMPT_GLOB, SEED, WIDTH, HEIGHT, ORTHO
 """
 from __future__ import annotations
-
-import glob, json, os, random, sys, time
+import base64, binascii, glob, json, os, sys, random, time
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
@@ -25,149 +16,165 @@ import torch
 from PIL import Image
 from diffusers import DiffusionPipeline
 
-# ─── 1 ▸ style catalogue ────────────────────────────────────────────────
+
+# ─── 1) ART STYLES ────────────────────────────────────────────────────────
 STYLES: dict[str, str] = {
-    # ── core / generic ————————————————————————————————————————
-    "Photorealistic":     "photorealistic style, high fidelity, realistic lighting, lifelike textures",
-    "Disney":             "Disney-style animation, whimsical characters, vibrant colours",
-    "Cartoon":            "cartoon style, bold outlines, flat colours, stylised exaggeration",
-    "Watercolor":         "watercolour / hand-painted style, soft brush strokes, blended colours",
-    "Anime":              "anime style, cel-shaded, crisp line art, expressive characters",
-    "3D_Render":          "3D render style, realistic shading, detailed modelling, cinematic lighting",
-    "Pixel_Art":          "pixel-art style, low resolution, blocky pixels, retro game aesthetic",
-    "Line_Art":           "line-art / ink sketch, high contrast, black & white, hand-drawn lines",
-
-    # ── existing MMO / fantasy set ——————————————————————————
-    "World_of_Warcraft":  "World-of-Warcraft dark fantasy, stylised realism, ornate armour",
-    "Studio_Ghibli":      "Studio-Ghibli soft pastel palette, whimsical detail, hand-drawn feel",
-    "Blizzard_Cinematic": "Blizzard Entertainment cinematic style, exaggerated proportions, hyper-clean PBR texturing, heroic posing",
-    "Riot_Illustrative":  "League-of-Legends splash-art style, painterly gradients, high-contrast rim light, saturated palette",
-    "Dark_Souls":         "FromSoftware grimdark realism, muted colours, heavy weathering, gothic atmosphere",
-    "Elder_Scrolls":      "Elder-Scrolls high-fantasy realism, Nordic motifs, subdued earth tones, hand-painted textures",
-    "Lineage":            "Lineage MMO style, sleek armour plating, jewel accents, East-Asian high fantasy",
-    "Final_Fantasy_XIV":  "FFXIV art style, clean anime-influenced faces, ornate costume design, vibrant effect glows",
-    "Guild_Wars_Concept": "Guild-Wars concept art, painterly brushwork, impressionistic backdrops, desaturated mid-tones",
-    "Torchlight":         "Torchlight stylised low-poly, chunky silhouettes, bold colour blocking, playful proportions",
-    "Forsaken_Dusk":      "high-contrast dusk lighting, purple-blue ambience, ethereal particle effects, mystical aura",
-    "Steampunk_MMORPG":   "Victorian steampunk fantasy, brass machinery, leather straps, smoky industrial haze",
-    "Cel_Shaded_Combat":  "cel-shaded toon rendering, thick contour lines, vibrant flat shadows, anime motion streaks",
-    "Isometric_ARPG":     "isometric ARPG hand-painted textures, exaggerated foreshortening, loot sparkle highlights",
-
-    # ── NEW additions (18) ————————————————————————————————————
-    "Diablo_Immortal":    "Diablo-Immortal high-resolution gothic horror, crimson palette, demonic iconography, smouldering embers",
-    "Path_of_Exile":      "Path-of-Exile dark baroque fantasy, gritty surfaces, occult glyphs, muted browns and golds",
-    "Arcane_Series":      "Arcane (Netflix) painted 3D style, semi-realistic facial micro-detail, graffiti splatter accents",
-    "Overwatch_SciFi":    "Overwatch stylised sci-fi, hard-surface armour, saturated highlights, dynamic posing",
-    "RuneScape_HD":       "RuneScape modern HD style, bright colours, simplified shapes, whimsical medieval tech",
-    "Monster_Hunter":     "Monster-Hunter World realistic creature design, ornate bone armour, lush ecosystems",
-    "Dragon_Age":         "Dragon-Age dark heroic fantasy, weathered metals, embroidered fabrics, dramatic chiaroscuro",
-    "Warhammer_Grimdark": "Warhammer grimdark, heavy plate, gothic cathedral motifs, oil-paint texture",
-    "Mythic_China":       "mythic ancient-China fantasy, flowing silk robes, jade inlays, ink-wash background",
-    "Norse_Saga":         "Norse saga illustration, runic carvings, cold misty palette, rugged textures",
-    "Atlantean_BioTech":  "Atlantean biotech fantasy, crystalline coral armour, luminous teal highlights, aquatic ambience",
-    "Celestial_Paladin":  "celestial paladin aesthetic, radiant gold filigree, angelic wings, holy light bloom",
-    "Shadow_Punk":        "shadow-punk aesthetic, black-purple palette, neon edge lights, ethereal smoke trails",
-    "Lowpoly_Mobile":     "low-poly mobile-game style, flat shading, minimal textures, vibrant gradients",
-    "Voxel_RPG":          "voxel-based RPG art, cubic forms, chunk-outlined edges, retro-lighting",
-    "Handpainted_MMO":    "hand-painted MMO textures, visible brush strokes, stylised shapes, saturated fantasy colours",
-    "Stylized_PBR":       "stylised PBR workflow, exaggerated normals, crisp cavity maps, colourful albedo",
-    "Retro_PS1":          "retro PS1 low-poly look, affine-texture wobble, dithering, 256-colour palette",
-    "Comic_Book_Halftone": "comic-book halftone shading, bold inking, screen-tone dots, vintage CMYK offset",
-    "Ink_Wash_SumiE":     "Japanese sumi-e ink wash, minimal brushwork, dynamic negative space, rice-paper texture",
-
-    # (total entries = 40)
+    # — realistic / painterly —
+    "Photorealistic":        "photorealistic style, high fidelity, realistic lighting, lifelike textures",
+    "Hyper_Real_4K":         "ultra-detailed hyper-realism, 4K textures, ray-traced reflections",
+    "Watercolor":            "water-colour / hand-painted style, soft brush strokes, blended colours",
+    "Oil_Painting":          "classic oil-painting style, impasto texture, rich pigments",
+    "Impressionist":         "impressionist painting, visible brush strokes, vibrant colour dabs",
+    "Line_Art":              "line-art / ink sketch, high contrast, black & white, hand-drawn lines",
+    "Charcoal_Sketch":       "charcoal sketch, rough shading, chiaroscuro",
+    "Vintage_Comic":         "1960s vintage comic-book style, halftone dots, bold ink",
+    "Propaganda_Poster":     "mid-century propaganda poster, screen-printed, limited palette",
+    "Stencil_Graffiti":      "Banksy-style stencil graffiti, urban wall texture",
+    # — media / studio looks —
+    "Disney":                "Disney animation style, whimsical characters, vibrant colours",
+    "Pixar":                 "Pixar style, soft volumetric lighting, expressive characters",
+    "DreamWorks":            "DreamWorks animation style, stylised realism, cinematic lighting",
+    "Studio_Ghibli":         "Studio Ghibli pastel palette, whimsical detail, hand-drawn feel",
+    "World_of_Warcraft":     "World-of-Warcraft dark fantasy, stylised realism, ornate armour",
+    "Overwatch":             "Overwatch hero style, colourful PBR materials, semi-realistic",
+    "Fortnite":              "Fortnite toon PBR, saturated colours, exaggerated proportions",
+    "Diablo":                "Diablo grim gothic fantasy, desaturated palette, moody lighting",
+    "Soulslike_Dark":        "Souls-like dark fantasy realism, gritty textures, atmospheric haze",
+    "Borderlands":           "Borderlands ink-outlined cel shading, comic-book texture",
+    # — stylised / 3-D renders —
+    "3D_Render":             "3D render style, realistic shading, detailed modelling, cinematic lighting",
+    "Clay_Stopmotion":       "stop-motion clay model look, fingerprints, studio set lighting",
+    "Lego_Bricks":           "Lego brick style, interlocking studs, glossy ABS plastic",
+    "Papercraft":            "papercraft diorama, folded paper edges, handcrafted texture",
+    "Voxel":                 "voxel-art style, blocky 3-D pixels, orthographic view",
+    "Isometric_Pixel":       "isometric pixel-art, 45-degree angle, retro game aesthetic",
+    "Lowpoly_Synty":         "low-poly style inspired by Synty Studios, chunky facets, flat shading",
+    "Lowpoly_Polytoon":      "stylised low-poly cartoon, smooth gradients, cheerful palette",
+    "Flat_Shaded":           "flat-shaded 3-D, no texture, crisp colour regions",
+    "Cel_Shaded_3D":         "cel-shaded 3-D, thick outline, flat colours, comic feel",
+    # — cultural / decorative —
+    "Anime":                 "anime style, cel-shaded, crisp line art, expressive characters",
+    "Manga_Monochrome":      "black-and-white manga inks, screentone shading",
+    "Art_Nouveau":           "Art-Nouveau decorative style, flowing lines, floral motifs",
+    "Art_Deco":              "Art-Deco geometry, gilded accents, 1920s glamour",
+    "Baroque":               "baroque ornamentation, dramatic lighting, rich detail",
+    "Steampunk":             "steampunk aesthetic, brass gears, victorian diesel machinery",
+    "Cyberpunk":             "cyberpunk neon dystopia, holographic glow, rain-soaked streets",
+    "Synthwave":             "1980s synthwave grid, neon magenta & blue, retro-future sunset",
+    "Retro_Polygon":         "1990s low-poly PS1 style, affine texture warp, low-resolution",
+    "Pixel_Art":             "classic pixel-art, 16-bit colour, limited palette",
+    # — painterly abstractions —
+    "Watercolour_Splatter":  "loose watercolour splatters, bleeding edges, vibrant hues",
+    "Ink_Wash":              "East-Asian sumi-e ink wash, minimal brushwork",
+    "Pointillism":           "pointillism dots, optical colour mixing, Seurat inspired",
+    "Cubism":                "cubist abstraction, fractured geometry, multiple perspectives",
+    "Surrealist":            "surrealist painting, dream-like, impossible juxtapositions",
+    "Fauvism":               "fauvist wild brush strokes, non-naturalistic colours",
+    # — hard-surface realism —
+    "PBR_Realism":           "AAA PBR realism, physically-based materials, ray-traced lighting",
+    "Hard_Surface_Mech":     "hard-surface mech design, clean bevels, sci-fi decals",
+    "Dieselpunk":            "dieselpunk machinery, worn metal, oil stains",
+    "Industrial_Noir":       "industrial noir, high-contrast lighting, rain-slick metal",
+    "Military_Techpack":     "military technical illustration, exploded views, spec labels",
+    "Blueprint":             "blueprint drawing, white lines on cyan background, technical style",
+    # — misc fun —
+    "Sticker_Bomb":          "die-cut sticker style, bold outlines, drop shadow, white border",
+    "Holographic":           "holographic foil, iridescent rainbow sheen, lens flares",
+    "Candy_Gloss":           "candy-gloss toy look, translucent plastic, subsurface glow",
+    "Metallic_Painted":      "metallic auto-paint, color-shift flakes, studio reflections",
+    "Neon_Wireframe":        "glowing neon wireframe, dark background, synth-grid"
 }
+VIEWS = ["front", "side", "back"]        # ALWAYS left → right
+VIEW_GRID_W = len(VIEWS)                 # 3
+VIEW_GRID_H = 1
 
-VIEWS              = ["front", "side", "back"]   # always L → R
-VIEW_GRID_W, VIEW_GRID_H = 3, 1                  # fixed for now
 
-# ─── 2 ▸ utility helpers ────────────────────────────────────────────────
-def req_env(key: str) -> str:
+# ─── 2) HELPERS ───────────────────────────────────────────────────────────
+def req(key: str) -> str:
     v = os.getenv(key)
     if not v:
         sys.exit(f"[ERROR] env '{key}' is required")
     return v
 
-def load_prompts(pattern: str) -> List[Tuple[str, str]]:
-    out: list[Tuple[str, str]] = []
-    for path in glob.glob(pattern, recursive=True):
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                if not line.strip():
-                    continue
-                data = json.loads(line)
-                txt  = data.get("text") or data.get("prompt") or ""
-                if txt.strip():
-                    out.append((Path(path).stem, txt.strip()))
-    if not out:
-        sys.exit(f"[ERROR] no prompts matched {pattern!r}")
-    return out
 
-def seed_everything(seed: int) -> torch.Generator:
+def load_prompts(pattern: str) -> List[Tuple[str, str]]:
+    items: list[Tuple[str, str]] = []
+    for p in glob.glob(pattern, recursive=True):
+        with open(p, encoding="utf-8") as fh:
+            for ln in fh:
+                if not ln.strip():
+                    continue
+                data = json.loads(ln)
+                txt = data.get("text") or data.get("prompt") or ""
+                if txt.strip():
+                    items.append((Path(p).stem, txt.strip()))
+    if not items:
+        sys.exit(f"[ERROR] no prompts matched {pattern!r}")
+    return items
+
+
+def seed_everything(seed: int):
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    return torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
 
-# ─── 3 ▸ main routine ───────────────────────────────────────────────────
+
+# ─── 3) MAIN ───────────────────────────────────────────────────────────────
 def main() -> None:
-    t0          = time.perf_counter()
-    model_id    = req_env("MODEL_ID")
-    pattern     = req_env("PROMPT_GLOB")
-    base_seed   = int(req_env("SEED"))
+    t0 = time.perf_counter()
+    model_id  = req("MODEL_ID")
+    pattern   = req("PROMPT_GLOB")
+    base_seed = int(req("SEED"))
+    width     = int(os.getenv("WIDTH",  "3072"))   # 3 × 1024
+    height    = int(os.getenv("HEIGHT", "1024"))
+    ortho     = os.getenv("ORTHO", "true").lower() == "true"
 
-    width       = int(os.getenv("WIDTH",  "3072"))   # 3 × 1024
-    height      = int(os.getenv("HEIGHT", "1024"))
-    ortho       = os.getenv("ORTHO", "true").lower() == "true"
-
-    device      = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[INFO] Loading {model_id} on {device} …")
-    pipe = DiffusionPipeline.from_pretrained(
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    pipe   = DiffusionPipeline.from_pretrained(
         model_id,
-        torch_dtype = torch.float16 if device == "cuda" else torch.float32,
-        variant     = "fp16"
+        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        variant="fp16",
     ).to(device)
-    pipe.set_progress_bar_config(disable=True)
 
     out_root = Path("outputs"); out_root.mkdir(exist_ok=True)
-    prompt_list = load_prompts(pattern)
-    total   = len(prompt_list) * len(STYLES)
+    prompts  = load_prompts(pattern)
+    total    = len(prompts) * len(STYLES)
+    counter  = 0
 
-    counter = 0
-    for prompt_stem, subject in prompt_list:
-        for s_idx, (style_name, style_desc) in enumerate(STYLES.items()):
-            seed = base_seed + (s_idx + 1) * 1000
-            g    = seed_everything(seed)
+    for stem, subj in prompts:
+        for s_idx, (style, style_desc) in enumerate(STYLES.items(), start=1):
 
-            # — composite text prompt ————————————————————————————
+            seed = base_seed + s_idx * 1000
+            seed_everything(seed)
+
             prompt = (
                 f"{style_desc}. "
-                f"A 3-panel orthographic sheet showing the {subject} "
-                f"from the front, side and back, left-to-right. "
+                f"A 3-panel orthographic sheet showing the {subj} "
+                f"from the front, side and back—left to right. "
                 f"{'Orthographic projection.' if ortho else 'Perspective view.'} "
                 f"Each panel centred, no overlap, transparent background."
             )
 
-            print(f"[{counter+1}/{total}] {style_name:<14}  seed={seed}")
+            print(f"[{counter+1:>4}/{total}] {style:<18}  seed={seed}")
             image = pipe(
                 prompt               = prompt,
                 height               = height,
                 width                = width,
                 num_inference_steps  = 25,
                 guidance_scale       = 5.0,
-                generator            = g,
             ).images[0]
 
-            save_dir = out_root / style_name / "sheet"
+            save_dir = out_root / style / "sheet"
             save_dir.mkdir(parents=True, exist_ok=True)
-            out_path = save_dir / f"{prompt_stem}.png"
+            out_path = save_dir / f"{stem}.png"
             image.save(out_path)
 
             counter += 1
             print(f"      → saved {out_path.relative_to(out_root)}")
 
     dt = time.perf_counter() - t0
-    print(f"[✓] Completed  {counter} sheets  ({dt/60:4.1f} min total)")
+    print(f"[✓] Completed → {counter} sheets ({dt/60:4.1f} min total)")
+
 
 if __name__ == "__main__":
     main()
