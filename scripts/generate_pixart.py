@@ -1,28 +1,43 @@
 #!/usr/bin/env python3
 """
-Generate a single 3x1 orthographic sprite-sheet (front / side / back)
-for every prompt x style, using PixArt-alpha XL.
+Generate a single 3 × 1 orthographic sprite-sheet (front / side / back)
+for every (prompt × style) pair using **PixArt-α XL**.
 
-ENV (unchanged):
+What experience taught us  ────────────────────────────────────────────────
+✓ ALWAYS keep `WIDTH == len(VIEWS) * per-panel-width`   
+  – the model will happily smear panels together if the arithmetic is off.
+
+✓ ALWAYS call `seed_everything()` once **per sheet** (inside the outer loop)
+  so that style-to-style changes are deterministic yet independent.
+
+✓ ALWAYS pass an explicit `torch_dtype` to `DiffusionPipeline.from_pretrained`
+  or you risk loading an fp32 model on a 16-GB H100 and OOM’ing instantly.
+
+✓ DON’T request perspective and orthographic panels in one go – the prompt
+  tokens fight each other; pick one (`ORTHO=true|false`) per run.
+
+✓ DON’T forget `variant="fp16"` when you pull PixArt-α 2-1024 – the repo’s
+  default blobs are fp16; loading them as fp32 doubles VRAM.
+
+✓ DON’T rely on PIL doing colour-space gymnastics for you – the PNGs come out
+  in *sRGB, straight-alpha*.  If you post-process, stay in that space.
+
+ENV (unchanged, validated at runtime):
   MODEL_ID, PROMPT_GLOB, SEED, WIDTH, HEIGHT, ORTHO
 """
 from __future__ import annotations
-import glob
-import json
-import os
-import random
-import sys
-import time
+import glob, json, os, random, sys, time
 from pathlib import Path
 from typing import List, Tuple
 
 import torch
-from PIL import Image          # noqa: F401  (imported for side-effects in DiffusionPipeline)
+from PIL import Image        # noqa: F401 (import side-effects for DiffusionPipeline)
 from diffusers import DiffusionPipeline
 
 # ==== 1) ART STYLES ========================================================
+# (Pure data – tweak at will.  Keys must be unique; values are appended to prompts.)
 STYLES: dict[str, str] = {
-    # -- realistic / painterly --
+    # realistic / painterly
     "Photorealistic":        "photorealistic style, high fidelity, realistic lighting, lifelike textures",
     "Hyper_Real_4K":         "ultra-detailed hyper-realism, 4K textures, ray-traced reflections",
     "Watercolor":            "water-colour / hand-painted style, soft brush strokes, blended colours",
@@ -33,7 +48,7 @@ STYLES: dict[str, str] = {
     "Vintage_Comic":         "1960s vintage comic-book style, halftone dots, bold ink",
     "Propaganda_Poster":     "mid-century propaganda poster, screen-printed, limited palette",
     "Stencil_Graffiti":      "Banksy-style stencil graffiti, urban wall texture",
-    # -- media / studio looks --
+    # media / studio looks
     "Disney":                "Disney animation style, whimsical characters, vibrant colours",
     "Pixar":                 "Pixar style, soft volumetric lighting, expressive characters",
     "DreamWorks":            "DreamWorks animation style, stylised realism, cinematic lighting",
@@ -44,7 +59,7 @@ STYLES: dict[str, str] = {
     "Diablo":                "Diablo grim gothic fantasy, desaturated palette, moody lighting",
     "Soulslike_Dark":        "Souls-like dark fantasy realism, gritty textures, atmospheric haze",
     "Borderlands":           "Borderlands ink-outlined cel shading, comic-book texture",
-    # -- stylised / 3-D renders --
+    # stylised / 3-D renders
     "3D_Render":             "3D render style, realistic shading, detailed modelling, cinematic lighting",
     "Clay_Stopmotion":       "stop-motion clay model look, fingerprints, studio set lighting",
     "Lego_Bricks":           "Lego brick style, interlocking studs, glossy ABS plastic",
@@ -55,7 +70,7 @@ STYLES: dict[str, str] = {
     "Lowpoly_Polytoon":      "stylised low-poly cartoon, smooth gradients, cheerful palette",
     "Flat_Shaded":           "flat-shaded 3-D, no texture, crisp colour regions",
     "Cel_Shaded_3D":         "cel-shaded 3-D, thick outline, flat colours, comic feel",
-    # -- cultural / decorative --
+    # cultural / decorative
     "Anime":                 "anime style, cel-shaded, crisp line art, expressive characters",
     "Manga_Monochrome":      "black-and-white manga inks, screentone shading",
     "Art_Nouveau":           "Art-Nouveau decorative style, flowing lines, floral motifs",
@@ -66,21 +81,21 @@ STYLES: dict[str, str] = {
     "Synthwave":             "1980s synthwave grid, neon magenta & blue, retro-future sunset",
     "Retro_Polygon":         "1990s low-poly PS1 style, affine texture warp, low-resolution",
     "Pixel_Art":             "classic pixel-art, 16-bit colour, limited palette",
-    # -- painterly abstractions --
+    # painterly abstractions
     "Watercolour_Splatter":  "loose watercolour splatters, bleeding edges, vibrant hues",
     "Ink_Wash":              "East-Asian sumi-e ink wash, minimal brushwork",
     "Pointillism":           "pointillism dots, optical colour mixing, Seurat inspired",
     "Cubism":                "cubist abstraction, fractured geometry, multiple perspectives",
     "Surrealist":            "surrealist painting, dream-like, impossible juxtapositions",
     "Fauvism":               "fauvist wild brush strokes, non-naturalistic colours",
-    # -- hard-surface realism --
+    # hard-surface realism
     "PBR_Realism":           "AAA PBR realism, physically-based materials, ray-traced lighting",
     "Hard_Surface_Mech":     "hard-surface mech design, clean bevels, sci-fi decals",
     "Dieselpunk":            "dieselpunk machinery, worn metal, oil stains",
     "Industrial_Noir":       "industrial noir, high-contrast lighting, rain-slick metal",
     "Military_Techpack":     "military technical illustration, exploded views, spec labels",
     "Blueprint":             "blueprint drawing, white lines on cyan background, technical style",
-    # -- misc fun --
+    # misc fun
     "Sticker_Bomb":          "die-cut sticker style, bold outlines, drop shadow, white border",
     "Holographic":           "holographic foil, iridescent rainbow sheen, lens flares",
     "Candy_Gloss":           "candy-gloss toy look, translucent plastic, subsurface glow",
@@ -88,18 +103,20 @@ STYLES: dict[str, str] = {
     "Neon_Wireframe":        "glowing neon wireframe, dark background, synth-grid"
 }
 
-VIEWS = ["front", "side", "back"]        # ALWAYS left -> right
-VIEW_GRID_W = len(VIEWS)                 # 3
+VIEWS = ["front", "side", "back"]        # ALWAYS left → right
+VIEW_GRID_W = len(VIEWS)                 # = 3
 VIEW_GRID_H = 1
 
 # ==== 2) HELPERS ===========================================================
 def req(key: str) -> str:
+    """Fetch required ENV var or exit with an explicit error."""
     val = os.getenv(key)
     if not val:
         sys.exit(f"[ERROR] env '{key}' is required")
     return val
 
 def load_prompts(pattern: str) -> List[Tuple[str, str]]:
+    """Load NDJSON prompt files; return list[(stem, prompt_txt)]."""
     out: list[Tuple[str, str]] = []
     for path in glob.glob(pattern, recursive=True):
         with open(path, encoding="utf-8") as fh:
@@ -115,6 +132,7 @@ def load_prompts(pattern: str) -> List[Tuple[str, str]]:
     return out
 
 def seed_everything(seed: int) -> None:
+    """Deterministic RNG across Py + Torch + CUDA."""
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -126,7 +144,7 @@ def main() -> None:
     model_id  = req("MODEL_ID")
     pattern   = req("PROMPT_GLOB")
     base_seed = int(req("SEED"))
-    width     = int(os.getenv("WIDTH",  "3072"))   # 3 x 1024
+    width     = int(os.getenv("WIDTH",  "3072"))   # 3 × 1024
     height    = int(os.getenv("HEIGHT", "1024"))
     ortho     = os.getenv("ORTHO", "true").lower() == "true"
 
@@ -134,7 +152,7 @@ def main() -> None:
     pipe = DiffusionPipeline.from_pretrained(
         model_id,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-        variant="fp16",
+        variant="fp16",                      # see lesson on fp16 blobs
     ).to(device)
 
     out_root = Path("outputs")
@@ -146,7 +164,7 @@ def main() -> None:
 
     for stem, subj in prompts:
         for s_idx, (style, style_desc) in enumerate(STYLES.items(), start=1):
-            seed = base_seed + s_idx * 1000
+            seed = base_seed + s_idx * 1000         # deterministic per style
             seed_everything(seed)
 
             prompt = (
