@@ -16,6 +16,10 @@ Lessons learned
     Newer wheels silently jump to Torch 2.4 + cu121 — pin if you need it.
 5.  Keep the giant Docker “start_cmd” ASCII-only; fancy quotes break YAML.
 6.  RunPod logs sometimes repeat; track `last_log` and only print deltas.
+7.  transformers ≥ 4.0 requires the ‘regex’ wheel at import-time.
+    When installing with --no-deps, remember to `pip install regex`
+    explicitly (pin a version that still has pre-built wheels for
+    your CUDA / Python combo).
 
 Search this header for **ALWAYS** or **DON’T** next time something tanks.
 """
@@ -65,36 +69,39 @@ def main() -> None:
         "LINODE_DEFAULT_REGION":    region,
     }
 
-    # ------------------------------------------------------------------ #
-    #  ASCII-only start_cmd executed by bash -c inside the container      #
-    # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------- #
+    #  Start-up command (single quoted string executed by “bash -c”)      #
+    # ------------------------------------------------------------------- #
     start_cmd = (
-        # tiny system deps
         "export DEBIAN_FRONTEND=noninteractive && "
         "apt-get update -qq && "
         "apt-get install -y --no-install-recommends git python3-pip tzdata && "
 
-        # 1 ─ Pin Torch / Vision first  (Lesson 1)
+        # 1 ─ Pin Torch / TorchVision first  (Lesson 1)
         "python3 -m pip install --no-cache-dir --upgrade "
         "--extra-index-url https://download.pytorch.org/whl/cu118 "
         "torch==2.3.0+cu118 torchvision==0.18.0+cu118 && "
 
-        # 2 ─ Core HF libs, no deps (Lessons 2 & 3)
+        # 1½ ─ **Install mandatory single-deps we skipped with --no-deps**
+        #     transformers needs ‘regex’; keep it pinned so it stays CU118-compatible.
+        "python3 -m pip install --no-cache-dir --upgrade regex==2024.4.16 && "
+
+        # 2 ─ Core HF libs (NO deps → Lessons 2 & 3)
         "python3 -m pip install --no-cache-dir --upgrade --no-deps "
         "diffusers==0.33.1 transformers==4.51.3 accelerate==0.27.2 "
         "pillow==10.3.0 safetensors==0.5.3 huggingface_hub==0.29.3 && "
 
-        # 3 ─ Optional xFormers (Lesson 4) — uncomment if you actually use it
+        # 3 ─ (Optional) xFormers, version-pinned (Lesson 4) – comment out if not needed
         # \"python3 -m pip install --no-cache-dir --upgrade --no-deps "
         # \"xformers==0.0.26.post2\" && "
 
-        # 4 ─ Fetch / update repo
+        # 4 ─ Clone / update repo (idempotent)
         "[ -d /workspace/repo/.git ] || "
         "git clone --depth 1 https://github.com/CastlesideGameStudio/spec-render-pipeline.git "
         "/workspace/repo && "
         "cd /workspace/repo && "
 
-        # 5 ─ Fire the generator
+        # 5 ─ Kick off generator script
         "python3 scripts/generate_pixart.py"
     )
 
