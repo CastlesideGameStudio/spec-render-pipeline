@@ -38,7 +38,7 @@ for v in ("BUCKET", "LINODE_S3_ENDPOINT",
 session = boto3.session.Session()
 s3 = session.client(
     "s3",
-    endpoint_url=f"https://{ENDPT}",
+    endpoint_url=ENDPT,
     aws_access_key_id=KEY,
     aws_secret_access_key=SEC,
     region_name="us-east-1",
