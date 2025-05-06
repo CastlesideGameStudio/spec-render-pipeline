@@ -2,8 +2,8 @@
 """
 Generate 3×1 orthographic sprite-sheets with PixArt-α XL.
 
-Local output  ……  outputs/<Style>/sheet/<stem>.png
-Remote layout ……  castlesidegamestudio-spec-sheets/<YYYYMMDD>/<Style>/sheet/<stem>.png
+Local  → outputs/<Style>/sheet/<stem>.png  
+Remote → castlesidegamestudio-spec-sheets/<YYYYMMDD>/<Style>/sheet/<stem>.png  
 A README.txt is uploaded at <YYYYMMDD>/ to prove the prefix is writable.
 """
 
@@ -133,6 +133,20 @@ BUCKET   = "castlesidegamestudio-spec-sheets"
 S3_EP    = req("LINODE_S3_ENDPOINT")        # e.g. https://us-east-1.linodeobjects.com
 DATE_STR = datetime.now(timezone.utc).strftime("%Y%m%d")
 
+# ── NEW : map Linode creds → AWS CLI & print masked preview ───────────────
+LINODE_KEY    = os.getenv("LINODE_ACCESS_KEY_ID")
+LINODE_SECRET = os.getenv("LINODE_SECRET_ACCESS_KEY")
+if not LINODE_KEY or not LINODE_SECRET:
+    sys.exit("[ERROR] Linode S3 credentials are missing in the pod env")
+
+os.environ["AWS_ACCESS_KEY_ID"]     = LINODE_KEY
+os.environ["AWS_SECRET_ACCESS_KEY"] = LINODE_SECRET
+
+def _mask(s: str) -> str:
+    return f"{s[:4]}…{s[-4:]}" if len(s) > 8 else "****"
+
+print(f"[INFO] Using creds  ID={_mask(LINODE_KEY)}  SECRET={_mask(LINODE_SECRET)}")
+
 def ensure_awscli() -> None:
     """Install AWS CLI v1 inside the pod if it's missing."""
     if shutil.which("aws") is None:
@@ -173,7 +187,7 @@ def s3_upload(local_path: Path, style: str) -> None:
     else:
         print(f"      -> uploaded {rel_key}")
 
-# ==== 3) main ==============================================================
+# ==== 3) main ==============================================================  
 def main() -> None:
     t0 = time.perf_counter()
 
