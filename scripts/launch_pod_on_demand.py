@@ -89,7 +89,8 @@ def main() -> None:
         # 2 ─ Core HF libs (NO deps → Lessons 2 & 3)
         "python3 -m pip install --no-cache-dir --upgrade --no-deps "
         "diffusers==0.33.1 transformers==4.51.3 accelerate==0.27.2 "
-        "pillow==10.3.0 safetensors==0.5.3 huggingface_hub==0.30.1 tokenizers==0.21.0 sentencepiece==0.2.0 && "
+        "pillow==10.3.0 safetensors==0.5.3 huggingface_hub==0.30.1 "
+        "tokenizers==0.21.0 sentencepiece==0.2.0 ftfy==6.1.3 regex==2024.4.16 && "
 
         # 3 ─ (Optional) xFormers, version-pinned (Lesson 4) – comment out if not needed
         # \"python3 -m pip install --no-cache-dir --upgrade --no-deps "
